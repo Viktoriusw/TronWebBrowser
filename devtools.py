@@ -44,6 +44,9 @@ class DevToolsDock(QDockWidget):
         self.dev_tools_view.page().setBackgroundColor(Qt.black)
         self.dev_tools_view.setStyleSheet("background-color: #2b2b2b;")
 
+        # Finalizar la configuración de la interfaz
+        self.init_ui()
+
     def set_browser(self, browser):
         """Establece el navegador actual para las DevTools"""
         if isinstance(browser, QWebEngineView):
@@ -59,9 +62,8 @@ class DevToolsDock(QDockWidget):
 
     def init_ui(self):
         """Inicializa la interfaz de usuario"""
-        layout = QVBoxLayout(self)
-        
-        # Estilo oscuro
+
+        # Estilo oscuro para elementos adicionales
         self.setStyleSheet("""
             QWidget {
                 background-color: #2b2b2b;
@@ -105,5 +107,18 @@ class DevToolsDock(QDockWidget):
                 background-color: #1565c0;
             }
         """)
-        
+
         # Crear la barra de herramientas
+        toolbar = QToolBar()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.hide)
+        toolbar.addWidget(close_btn)
+        self.layout.addWidget(toolbar)
+
+        # Añadir pestaña para la vista de DevTools
+        self.tabs_widget = QTabWidget()
+        self.tabs_widget.addTab(self.dev_tools_view, "Inspector")
+        self.layout.addWidget(self.tabs_widget)
+
+        # Asegurar que el layout esté configurado en el widget central
+        self.central_widget.setLayout(self.layout)
