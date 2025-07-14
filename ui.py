@@ -17,6 +17,7 @@ import subprocess
 from contextlib import closing
 from maintag import BookmarkManager
 from password_manager import PasswordManager
+from lm_chat import ChatDock
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -97,6 +98,12 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, self.password_dock)
         self.password_dock.hide()
 
+        # Configurar AI Chat Dock
+        self.chat_dock = ChatDock(self)
+        self.chat_dock.setAllowedAreas(Qt.RightDockWidgetArea | Qt.LeftDockWidgetArea)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.chat_dock)
+        self.chat_dock.hide()
+
     def setup_theme(self):
         # Cargar configuración de tema
         self.settings = QSettings("TronBrowser", "Settings")
@@ -162,6 +169,11 @@ class MainWindow(QMainWindow):
         devtools_action.setToolTip("Toggle Developer Tools")
         devtools_action.triggered.connect(self.toggle_devtools)
         self.nav_bar.addAction(devtools_action)
+
+        # AI Chat Button (uses settings icon)
+        chat_action = QAction(QIcon("icons/settings.png"), "AI Chat", self)
+        chat_action.triggered.connect(self.toggle_chat_dock)
+        self.nav_bar.addAction(chat_action)
 
         # Botón para mostrar el gestor de marcadores
         bookmark_manager_action = QAction(QIcon("icons/bookmark.png"), "Bookmark Manager", self)
@@ -254,6 +266,13 @@ class MainWindow(QMainWindow):
             self.password_dock.hide()
         else:
             self.password_dock.show()
+
+    def toggle_chat_dock(self):
+        """Alterna la visibilidad del chat de IA"""
+        if self.chat_dock.isVisible():
+            self.chat_dock.hide()
+        else:
+            self.chat_dock.show()
 
     def load_url(self, url):
         """Carga una URL en una nueva pestaña"""
