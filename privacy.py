@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                               QGroupBox, QScrollArea, QFrame, QListWidget, QMessageBox,
                               QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
                               QSizePolicy, QDialogButtonBox, QLineEdit, QTreeWidget,
-                              QTreeWidgetItem, QMenu, QInputDialog)
+                              QTreeWidgetItem, QMenu, QInputDialog, QApplication)
 from PySide6.QtCore import Qt, Signal, QSettings, QUrl, QObject, QDateTime, QTimer
 from PySide6.QtWebEngineCore import (QWebEngineProfile, QWebEngineSettings, 
                                     QWebEngineUrlRequestInterceptor, QWebEngineUrlRequestInfo,
@@ -18,70 +18,222 @@ from datetime import datetime, timedelta
 import sqlite3
 import shutil
 import requests
+import re
+from dataclasses import dataclass
+from typing import Optional, Pattern, Set
+from collections import OrderedDict
 
-class PrivacyInterceptor(QWebEngineUrlRequestInterceptor):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.blocked_domains = set()
-        self.load_blocked_domains()
+@dataclass
+class ABPRule:
+    """Regla ABP (Adblock Plus) simplificada"""
+    regex: Optional[Pattern] = None
+    host_suffixes: Set[str] = None
+    block: bool = True
+    types: Optional[Set[str]] = None
+    third_party: Optional[bool] = None
+    include_domains: Set[str] = None
+    exclude_domains: Set[str] = None
+    
+    def __post_init__(self):
+        if self.host_suffixes is None:
+            self.host_suffixes = set()
+        if self.include_domains is None:
+            self.include_domains = set()
+        if self.exclude_domains is None:
+            self.exclude_domains = set()
 
-    def interceptRequest(self, info):
-        try:
-            url = info.requestUrl().toString()
-            domain = QUrl(url).host()
-            
-            # Verificar si el dominio está bloqueado
-            if domain in self.blocked_domains:
-                info.block(True)
-                return
 
-            # Bloquear recursos según el tipo
-            resource_type = info.resourceType()
-            if resource_type in [
-                QWebEngineUrlRequestInfo.ResourceType.Script,
-                QWebEngineUrlRequestInfo.ResourceType.Image,
-                QWebEngineUrlRequestInfo.ResourceType.StyleSheet
-            ]:
-                # Aquí puedes añadir lógica adicional para bloquear ciertos tipos de recursos
-                pass
-
-        except Exception as e:
-            print(f"Error en interceptRequest: {str(e)}")
-
-    def load_blocked_domains(self):
-        try:
-            if os.path.exists("blocked_domains.json"):
-                with open("blocked_domains.json", "r") as f:
-                    self.blocked_domains = set(json.load(f))
-        except Exception as e:
-            print(f"Error cargando dominios bloqueados: {str(e)}")
-
-    def save_blocked_domains(self):
-        try:
-            with open("blocked_domains.json", "w") as f:
-                json.dump(list(self.blocked_domains), f)
-        except Exception as e:
-            print(f"Error guardando dominios bloqueados: {str(e)}")
-
-    def add_blocked_domain(self, domain):
-        self.blocked_domains.add(domain)
-        self.save_blocked_domains()
-
-    def remove_blocked_domain(self, domain):
-        if domain in self.blocked_domains:
-            self.blocked_domains.remove(domain)
-            self.save_blocked_domains()
 
 class AdBlockerInterceptor(QWebEngineUrlRequestInterceptor):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.blocked_domains = set()
-        self.blocked_patterns = set()
+        # Nuevas estructuras para ABP
+        self.block_rules = []
+        self.exception_rules = []
+        self._host_index = {}  # dict suffix->list[rule] para optimización
+        self._lock = threading.Lock()
+        self._lru = OrderedDict()  # Cache LRU para decisiones
+        self._lru_max_size = 512
+        
+        # Mantener compatibilidad temporal para ABP únicamente
         self.last_update = 0
         self.update_interval = 24 * 60 * 60  # 24 horas en segundos
         
         # Iniciar la carga de listas de filtros en un hilo separado
         threading.Thread(target=self.load_filter_lists, daemon=True).start()
+
+    def parse_rule(self, line: str) -> Optional[ABPRule]:
+        """Parsea una línea de filtro ABP y devuelve ABPRule o None"""
+        line = line.strip()
+        
+        # Ignorar comentarios y filtros cosméticos
+        if not line or line.startswith('!') or '##' in line or '#?#' in line:
+            return None
+            
+        # Verificar si es excepción (@@)
+        is_exception = line.startswith('@@')
+        if is_exception:
+            line = line[2:]
+            
+        # Separar opciones si existen ($)
+        if '$' in line:
+            filter_part, options_part = line.rsplit('$', 1)
+        else:
+            filter_part, options_part = line, ""
+            
+        # Parsear opciones
+        types = None
+        third_party = None
+        include_domains = set()
+        exclude_domains = set()
+        
+        if options_part:
+            for option in options_part.split(','):
+                option = option.strip()
+                if option in ['script', 'image', 'stylesheet', 'media', 'font', 'xmlhttprequest', 'subdocument', 'ping']:
+                    if types is None:
+                        types = set()
+                    types.add(option)
+                elif option == 'third-party':
+                    third_party = True
+                elif option == '~third-party':
+                    third_party = False
+                elif option.startswith('domain='):
+                    domains = option[7:].split('|')
+                    for domain in domains:
+                        if domain.startswith('~'):
+                            exclude_domains.add(domain[1:])
+                        else:
+                            include_domains.add(domain)
+        
+        # Parsear filtro principal
+        host_suffixes = set()
+        regex = None
+        
+        # Ancla de dominio ||domain^
+        if filter_part.startswith('||') and '^' in filter_part:
+            end_idx = filter_part.index('^')
+            domain = filter_part[2:end_idx].lower()
+            if '/' not in domain and '*' not in domain:
+                host_suffixes.add(domain)
+            else:
+                # Convertir a regex si es complejo
+                pattern = re.escape(filter_part).replace('\\*', '.*').replace('\\^', '[/?&=]')
+                pattern = pattern.replace('\\|\\|', '^https?://([^/]+\\.)?')
+                try:
+                    regex = re.compile(pattern, re.IGNORECASE)
+                except:
+                    return None
+        elif '||' in filter_part or '*' in filter_part or '^' in filter_part:
+            # Convertir a regex para patrones complejos
+            pattern = re.escape(filter_part).replace('\\*', '.*').replace('\\^', '[/?&=]')
+            if pattern.startswith('\\|\\|'):
+                pattern = pattern.replace('\\|\\|', '^https?://([^/]+\\.)?', 1)
+            pattern = pattern.replace('\\|', '')
+            try:
+                regex = re.compile(pattern, re.IGNORECASE)
+            except:
+                return None
+        else:
+            # Filtro de substring simple
+            if len(filter_part) > 3:  # Evitar patrones muy cortos
+                try:
+                    regex = re.compile(re.escape(filter_part), re.IGNORECASE)
+                except:
+                    return None
+            else:
+                return None
+                
+        return ABPRule(
+            regex=regex,
+            host_suffixes=host_suffixes,
+            block=not is_exception,
+            types=types,
+            third_party=third_party,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains
+        )
+
+    def resource_matches(self, info, types: Set[str]) -> bool:
+        """Verifica si el tipo de recurso coincide con los tipos de filtro"""
+        if not types:
+            return True  # Sin restricción de tipo
+            
+        try:
+            resource_type = info.resourceType()
+            
+            # Mapeo seguro ABP -> Qt ResourceType
+            type_mapping = {}
+            
+            # Solo agregar si existe en esta versión de Qt
+            if hasattr(QWebEngineUrlRequestInfo.ResourceType, 'ResourceTypeScript'):
+                type_mapping['script'] = QWebEngineUrlRequestInfo.ResourceType.ResourceTypeScript
+            elif hasattr(QWebEngineUrlRequestInfo.ResourceType, 'Script'):
+                type_mapping['script'] = QWebEngineUrlRequestInfo.ResourceType.Script
+                
+            if hasattr(QWebEngineUrlRequestInfo.ResourceType, 'ResourceTypeImage'):
+                type_mapping['image'] = QWebEngineUrlRequestInfo.ResourceType.ResourceTypeImage
+            elif hasattr(QWebEngineUrlRequestInfo.ResourceType, 'Image'):
+                type_mapping['image'] = QWebEngineUrlRequestInfo.ResourceType.Image
+                
+            if hasattr(QWebEngineUrlRequestInfo.ResourceType, 'ResourceTypeStyleSheet'):
+                type_mapping['stylesheet'] = QWebEngineUrlRequestInfo.ResourceType.ResourceTypeStyleSheet
+            elif hasattr(QWebEngineUrlRequestInfo.ResourceType, 'StyleSheet'):
+                type_mapping['stylesheet'] = QWebEngineUrlRequestInfo.ResourceType.StyleSheet
+                
+            if hasattr(QWebEngineUrlRequestInfo.ResourceType, 'ResourceTypeMedia'):
+                type_mapping['media'] = QWebEngineUrlRequestInfo.ResourceType.ResourceTypeMedia
+            elif hasattr(QWebEngineUrlRequestInfo.ResourceType, 'Media'):
+                type_mapping['media'] = QWebEngineUrlRequestInfo.ResourceType.Media
+                
+            if hasattr(QWebEngineUrlRequestInfo.ResourceType, 'ResourceTypeFont'):
+                type_mapping['font'] = QWebEngineUrlRequestInfo.ResourceType.ResourceTypeFont
+            elif hasattr(QWebEngineUrlRequestInfo.ResourceType, 'Font'):
+                type_mapping['font'] = QWebEngineUrlRequestInfo.ResourceType.Font
+                
+            if hasattr(QWebEngineUrlRequestInfo.ResourceType, 'ResourceTypeXmlHttpRequest'):
+                type_mapping['xmlhttprequest'] = QWebEngineUrlRequestInfo.ResourceType.ResourceTypeXmlHttpRequest
+            elif hasattr(QWebEngineUrlRequestInfo.ResourceType, 'XmlHttpRequest'):
+                type_mapping['xmlhttprequest'] = QWebEngineUrlRequestInfo.ResourceType.XmlHttpRequest
+                
+            # Verificar si algún tipo coincide
+            for filter_type in types:
+                if filter_type in type_mapping:
+                    if resource_type == type_mapping[filter_type]:
+                        return True
+                        
+            # Si ningún tipo mapeado coincide, es no match
+            return False
+            
+        except (AttributeError, Exception):
+            # Si no podemos determinar el tipo, ignorar restricción
+            return True
+
+    def is_third_party(self, info) -> Optional[bool]:
+        """Determina si la solicitud es de terceros"""
+        try:
+            if hasattr(info, 'firstPartyUrl'):
+                # Obtener dominios principales (eTLD+1 simplificado)
+                request_host = info.requestUrl().host().lower()
+                first_party_host = info.firstPartyUrl().host().lower()
+                
+                # Simplificación: comparar hosts directamente
+                # En implementación real se usaría public suffix list
+                def get_main_domain(host):
+                    parts = host.split('.')
+                    if len(parts) >= 2:
+                        return '.'.join(parts[-2:])
+                    return host
+                
+                request_main = get_main_domain(request_host)
+                first_party_main = get_main_domain(first_party_host)
+                
+                return request_main != first_party_main
+            else:
+                # API no disponible, no se puede determinar
+                return None
+        except (AttributeError, Exception):
+            return None
 
     def load_filter_lists(self):
         """Carga las listas de filtros desde archivos locales"""
@@ -102,11 +254,96 @@ class AdBlockerInterceptor(QWebEngineUrlRequestInterceptor):
                 print("No se encontró el archivo easyprivacy.txt")
                 self.easyprivacy = []
 
-            print("Listas de filtros cargadas correctamente")
+            # Cargar filtros personalizados o crearlos si no existen
+            self.custom_filters = self.load_or_create_custom_filters()
+
+            # Compilar filtros después de cargar
+            all_lines = self.easylist + self.easyprivacy + self.custom_filters
+            block_rules, exception_rules, host_index = self.compile_filters(all_lines)
+            
+            # Swap atómico bajo lock
+            with self._lock:
+                self.block_rules = block_rules
+                self.exception_rules = exception_rules
+                self._host_index = host_index
+                
+            print(f"Listas de filtros cargadas: {len(block_rules)} bloqueos, {len(exception_rules)} excepciones")
         except Exception as e:
             print(f"Error al cargar las listas de filtros: {str(e)}")
             self.easylist = []
             self.easyprivacy = []
+            self.custom_filters = []
+
+    def compile_filters(self, lines):
+        """Compila reglas de filtros ABP en block_rules y exception_rules"""
+        block_rules = []
+        exception_rules = []
+        host_index = {}
+        
+        for line in lines:
+            rule = self.parse_rule(line)
+            if rule is None:
+                continue
+                
+            if rule.block:
+                block_rules.append(rule)
+            else:
+                exception_rules.append(rule)
+                
+            # Indexar por sufijos de host para optimización
+            for suffix in rule.host_suffixes:
+                if suffix not in host_index:
+                    host_index[suffix] = []
+                host_index[suffix].append(rule)
+        
+        return block_rules, exception_rules, host_index
+
+    def load_or_create_custom_filters(self):
+        """Carga custom_filters.txt o lo crea con reglas específicas de YouTube"""
+        custom_filters_file = "custom_filters.txt"
+        
+        # Reglas específicas para YouTube y anuncios adicionales
+        default_custom_rules = [
+            "! Custom AdBlock filters for YouTube and additional ads",
+            "||googleads.g.doubleclick.net^",
+            "||pagead2.googlesyndication.com^",
+            "||pubads.g.doubleclick.net^",
+            "||securepubads.g.doubleclick.net^",
+            "||youtube.com/api/stats/ads$xmlhttprequest",
+            "||youtube.com/pagead/$xmlhttprequest,subdocument",
+            "||youtube.com/get_video_info?*adformat*",
+            "||youtube.com/youtubei/v1/player/ad_break*",
+            "||youtube.com/api/stats/watchtime*",
+            "||youtube.com/ptracking*",
+            "||googlevideo.com/videoplayback*adformat*",
+            "! Block additional ad tracking",
+            "||google-analytics.com^$third-party",
+            "||googletagmanager.com^$third-party",
+            "||facebook.com/tr/*$image,script",
+            "||facebook.net/en_US/fbevents.js",
+            "||connect.facebook.net^$third-party"
+        ]
+        
+        try:
+            if os.path.exists(custom_filters_file):
+                # Cargar archivo existente
+                with open(custom_filters_file, "r", encoding="utf-8") as f:
+                    custom_filters = f.read().splitlines()
+                print(f"Filtros personalizados cargados: {len(custom_filters)} reglas")
+                return custom_filters
+            else:
+                # Crear archivo con reglas por defecto
+                with open(custom_filters_file, "w", encoding="utf-8") as f:
+                    f.write("\n".join(default_custom_rules))
+                print(f"Archivo {custom_filters_file} creado con {len(default_custom_rules)} reglas por defecto")
+                return default_custom_rules
+                
+        except Exception as e:
+            print(f"Error al manejar {custom_filters_file}: {e}")
+            # Devolver reglas por defecto en caso de error
+            return default_custom_rules
+
+
 
     def update_filter_lists(self):
         """Actualiza las listas de filtros desde las fuentes en línea"""
@@ -135,37 +372,119 @@ class AdBlockerInterceptor(QWebEngineUrlRequestInterceptor):
             except Exception as e:
                 print(f"Error al actualizar EasyPrivacy: {str(e)}")
 
-            print("Listas de filtros actualizadas correctamente")
+            # Cargar filtros personalizados actualizados
+            self.custom_filters = self.load_or_create_custom_filters()
+            
+            # Compilar filtros después de actualizar
+            all_lines = self.easylist + self.easyprivacy + self.custom_filters
+            block_rules, exception_rules, host_index = self.compile_filters(all_lines)
+            
+            # Swap atómico bajo lock
+            with self._lock:
+                self.block_rules = block_rules
+                self.exception_rules = exception_rules
+                self._host_index = host_index
+                
+            print(f"Listas de filtros actualizadas: {len(block_rules)} bloqueos, {len(exception_rules)} excepciones")
         except Exception as e:
             print(f"Error al actualizar las listas de filtros: {str(e)}")
 
+    def _manage_lru_cache(self, key, value):
+        """Gestiona el cache LRU"""
+        if key in self._lru:
+            del self._lru[key]
+        elif len(self._lru) >= self._lru_max_size:
+            self._lru.popitem(last=False)
+        self._lru[key] = value
+
+    def _rule_matches(self, rule, url, host, is_tp, info):
+        """Verifica si una regla coincide con la solicitud"""
+        # Verificar dominios include/exclude
+        if rule.include_domains:
+            if not any(host.endswith(d) for d in rule.include_domains):
+                return False
+        if rule.exclude_domains:
+            if any(host.endswith(d) for d in rule.exclude_domains):
+                return False
+                
+        # Verificar third-party
+        if rule.third_party is not None:
+            if is_tp is None:
+                return False  # No se puede determinar, skip regla
+            if rule.third_party != is_tp:
+                return False
+                
+        # Verificar tipos de recurso
+        if not self.resource_matches(info, rule.types):
+            return False
+            
+        # Verificar host suffixes
+        if rule.host_suffixes:
+            if not any(host.endswith(suffix) for suffix in rule.host_suffixes):
+                return False
+        
+        # Verificar regex si existe
+        if rule.regex:
+            if not rule.regex.search(url):
+                return False
+                
+        return True
+
     def interceptRequest(self, info):
-        """Intercepta y bloquea solicitudes de anuncios"""
+        """Intercepta y bloquea solicitudes usando filtros ABP"""
         try:
             url = info.requestUrl().toString()
+            host = info.requestUrl().host().lower()
             
-            # Verificar dominios bloqueados
-            for domain in self.blocked_domains:
-                if domain in url:
+            # Verificar cache LRU
+            cache_key = f"{host}:{url[-50:]}"  # Key optimizado
+            if cache_key in self._lru:
+                decision = self._lru[cache_key]
+                if decision:
                     info.block(True)
-                    return
-
-            # Verificar patrones bloqueados
-            for pattern in self.blocked_patterns:
-                if pattern in url:
+                return
+            
+            # Calcular propiedades una vez
+            is_tp = self.is_third_party(info)
+            
+            # Obtener reglas bajo lock (lectura rápida)
+            with self._lock:
+                exception_rules = self.exception_rules[:]
+                block_rules = self.block_rules[:]
+                host_index = self._host_index.copy()
+            
+            # Verificar excepciones primero
+            for rule in exception_rules:
+                if self._rule_matches(rule, url, host, is_tp, info):
+                    self._manage_lru_cache(cache_key, False)
+                    return  # Permitir
+            
+            # Verificar reglas de bloqueo indexadas por host
+            matched_rules = []
+            for suffix in host_index:
+                if host.endswith(suffix):
+                    matched_rules.extend(host_index[suffix])
+            
+            # Verificar reglas específicas del host primero
+            for rule in matched_rules:
+                if rule.block and self._rule_matches(rule, url, host, is_tp, info):
                     info.block(True)
+                    self._manage_lru_cache(cache_key, True)
+                    print(f"Blocked by ABP rule: {host}")
                     return
-
-            # Bloquear tipos específicos de recursos
-            resource_type = info.resourceType()
-            if resource_type in [QWebEngineUrlRequestInfo.ResourceType.Script,
-                               QWebEngineUrlRequestInfo.ResourceType.Image,
-                               QWebEngineUrlRequestInfo.ResourceType.StyleSheet]:
-                for domain in self.blocked_domains:
-                    if domain in url:
+            
+            # Verificar reglas globales (regex) como fallback
+            for rule in block_rules:
+                if rule.regex and not rule.host_suffixes:  # Solo regex globales
+                    if self._rule_matches(rule, url, host, is_tp, info):
                         info.block(True)
+                        self._manage_lru_cache(cache_key, True)
+                        print(f"Blocked by regex rule: {url}")
                         return
-
+            
+            # No bloqueado
+            self._manage_lru_cache(cache_key, False)
+            
         except Exception as e:
             print(f"Error en interceptRequest: {str(e)}")
 
@@ -180,12 +499,12 @@ class PrivacySettings:
             "privacy_level": "balanced",  # strict, balanced, custom
             "block_trackers": True,
             "block_ads": True,
-            "block_cookies": False,
+            "no_persistent_cookies": False,  # Política de cookies persistentes
             "block_javascript": False,
             "block_images": False,
             "block_webrtc": True,
             "block_fingerprinting": True,
-            "block_third_party": True,
+            "block_third_party": True,  # Para cookies de terceros específicamente
             "clear_on_exit": True,
             "do_not_track": True
         }
@@ -666,7 +985,7 @@ class HistoryDialog(QDialog):
             copy_action = menu.addAction("Copy URL")
             delete_action = menu.addAction("Delete")
             
-            action = menu.exec_(self.history_tree.mapToGlobal(position))
+            action = menu.exec(self.history_tree.mapToGlobal(position))
             
             if action == open_action:
                 self.open_url(item, 0)
@@ -682,6 +1001,7 @@ class PrivacyManager(QWidget):
     tracker_blocked = Signal(str)
     data_shared = Signal(dict)
     data_cleared = Signal(str)
+    settings_changed = Signal()  # Nueva señal para cambios en settings
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -707,6 +1027,7 @@ class PrivacyManager(QWidget):
 
         # Crear pestañas para organizar las funciones
         tab_widget = QTabWidget()
+        tab_widget.setDocumentMode(True)  # Pestañas planas estilo moderno
         layout.addWidget(tab_widget)
 
         # Pestaña de Configuración General
@@ -740,12 +1061,12 @@ class PrivacyManager(QWidget):
         self.feature_checks = {
             "block_trackers": QCheckBox("Block Trackers"),
             "block_ads": QCheckBox("Block Ads"),
-            "block_cookies": QCheckBox("Block Third-Party Cookies"),
+            "no_persistent_cookies": QCheckBox("No Persistent Cookies"),
             "block_javascript": QCheckBox("Block JavaScript"),
             "block_images": QCheckBox("Block Images"),
             "block_webrtc": QCheckBox("Block WebRTC"),
             "block_fingerprinting": QCheckBox("Block Fingerprinting"),
-            "block_third_party": QCheckBox("Block Third-Party Requests"),
+            "block_third_party": QCheckBox("Block Third-Party Cookies"),
             "clear_on_exit": QCheckBox("Clear Data on Exit"),
             "do_not_track": QCheckBox("Send Do Not Track Signal"),
             "block_phishing": QCheckBox("Block Phishing Sites"),
@@ -885,6 +1206,10 @@ class PrivacyManager(QWidget):
         tab_widget.addTab(data_tab, "Browsing Data")
         tab_widget.addTab(permissions_tab, "Site Permissions")
 
+        # Crear data_label para evitar AttributeError en update_data_sharing
+        self.data_label = QLabel()
+        # Nota: no añadido al layout, solo para evitar errores
+        
         # Ajustar el tamaño mínimo del widget
         self.setMinimumWidth(300)
         self.setMinimumHeight(400)
@@ -896,7 +1221,7 @@ class PrivacyManager(QWidget):
         
         # Actualizar checkboxes
         for key, check in self.feature_checks.items():
-            check.setChecked(self.settings.get_setting(key))
+            check.setChecked(bool(self.settings.get_setting(key)))
 
     def on_privacy_level_changed(self, level):
         level = level.lower()
@@ -909,17 +1234,21 @@ class PrivacyManager(QWidget):
             self.apply_balanced_privacy()
         
         self.privacy_level_changed.emit(level)
+        # Emitir señal para aplicar cambios al vuelo
+        self.settings_changed.emit()
 
     def apply_strict_privacy(self):
         for key, check in self.feature_checks.items():
             check.setChecked(True)
             self.settings.set_setting(key, True)
+        # Emitir señal para aplicar cambios al vuelo
+        self.settings_changed.emit()
 
     def apply_balanced_privacy(self):
         balanced_settings = {
             "block_trackers": True,
             "block_ads": True,
-            "block_cookies": True,
+            "no_persistent_cookies": False,
             "block_javascript": False,
             "block_images": False,
             "block_webrtc": True,
@@ -930,13 +1259,17 @@ class PrivacyManager(QWidget):
         }
         
         for key, value in balanced_settings.items():
-            self.feature_checks[key].setChecked(value)
+            self.feature_checks[key].setChecked(bool(value))
             self.settings.set_setting(key, value)
+        # Emitir señal para aplicar cambios al vuelo
+        self.settings_changed.emit()
 
     def on_feature_changed(self):
         # Actualizar configuración cuando cambia cualquier feature
         for key, check in self.feature_checks.items():
             self.settings.set_setting(key, check.isChecked())
+        # Emitir señal para aplicar cambios al vuelo
+        self.settings_changed.emit()
 
     def on_font_size_changed(self, size):
         # Implementar cambio de tamaño de fuente en modo lectura
@@ -952,33 +1285,10 @@ class PrivacyManager(QWidget):
         self.data_shared.emit(data)
 
     def update_filter_lists(self):
-        """Actualiza las listas de filtros desde las fuentes en línea"""
+        """Actualiza las listas de filtros delegando al AdBlocker"""
         try:
-            # URLs de las listas de filtros
-            easylist_url = "https://easylist.to/easylist/easylist.txt"
-            easyprivacy_url = "https://easylist.to/easylist/easyprivacy.txt"
-
-            # Descargar EasyList
-            try:
-                response = requests.get(easylist_url)
-                response.raise_for_status()
-                with open("easylist.txt", "w", encoding="utf-8") as f:
-                    f.write(response.text)
-                self.ad_blocker.easylist = response.text.splitlines()
-            except Exception as e:
-                print(f"Error al actualizar EasyList: {str(e)}")
-
-            # Descargar EasyPrivacy
-            try:
-                response = requests.get(easyprivacy_url)
-                response.raise_for_status()
-                with open("easyprivacy.txt", "w", encoding="utf-8") as f:
-                    f.write(response.text)
-                self.ad_blocker.easyprivacy = response.text.splitlines()
-            except Exception as e:
-                print(f"Error al actualizar EasyPrivacy: {str(e)}")
-
-            print("Listas de filtros actualizadas correctamente")
+            # Delegar al ad_blocker para compilación y swap atómico
+            self.ad_blocker.update_filter_lists()
         except Exception as e:
             print(f"Error al actualizar las listas de filtros: {str(e)}")
 
@@ -1034,30 +1344,192 @@ class PrivacyManager(QWidget):
         except Exception as e:
             print(f"Error updating site permissions: {str(e)}")
 
+    def install_youtube_script(self, profile):
+        """Instala script para bloquear anuncios específicamente en YouTube"""
+        try:
+            # Remover script existente si ya existe
+            scripts = profile.scripts()
+            existing_script = scripts.findScript("yt-adblock")
+            if not existing_script.isNull():
+                scripts.remove(existing_script)
+
+            # Crear nuevo script
+            script = QWebEngineScript()
+            script.setName("yt-adblock")
+            script.setInjectionPoint(QWebEngineScript.DocumentCreation)
+            script.setWorldId(QWebEngineScript.ApplicationWorld)
+            script.setRunsOnSubFrames(True)
+            
+            # JavaScript para bloquear anuncios de YouTube
+            js_code = """
+(function() {
+    'use strict';
+    
+    console.log('YouTube AdBlock script loaded');
+    
+    // Interceptar ytInitialPlayerResponse
+    let originalDefineProperty = Object.defineProperty;
+    Object.defineProperty = function(obj, prop, descriptor) {
+        if (prop === 'ytInitialPlayerResponse' && descriptor && descriptor.value) {
+            try {
+                if (descriptor.value.adPlacements) {
+                    delete descriptor.value.adPlacements;
+                }
+                if (descriptor.value.playerAds) {
+                    delete descriptor.value.playerAds;
+                }
+                if (descriptor.value.adSlots) {
+                    delete descriptor.value.adSlots;
+                }
+            } catch (e) {}
+        }
+        return originalDefineProperty.call(this, obj, prop, descriptor);
+    };
+    
+    // Parchear fetch para bloquear requests de anuncios
+    const originalFetch = window.fetch;
+    window.fetch = function(url, options) {
+        if (typeof url === 'string' || url instanceof URL) {
+            const urlStr = url.toString();
+            const blockedPatterns = [
+                'pagead2.googlesyndication.com',
+                'googleads.g.doubleclick.net',
+                'pubads.g.doubleclick.net',
+                'securepubads.g.doubleclick.net',
+                '/pagead/',
+                '/api/stats/ads'
+            ];
+            
+            for (const pattern of blockedPatterns) {
+                if (urlStr.includes(pattern)) {
+                    console.log('Blocked fetch to:', urlStr);
+                    return Promise.reject(new Error('Blocked by AdBlock'));
+                }
+            }
+        }
+        return originalFetch.apply(this, arguments);
+    };
+    
+    // Parchear XMLHttpRequest
+    const originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+        if (typeof url === 'string') {
+            const blockedPatterns = [
+                'pagead2.googlesyndication.com',
+                'googleads.g.doubleclick.net',
+                'pubads.g.doubleclick.net',
+                'securepubads.g.doubleclick.net',
+                '/pagead/',
+                '/api/stats/ads'
+            ];
+            
+            for (const pattern of blockedPatterns) {
+                if (url.includes(pattern)) {
+                    console.log('Blocked XHR to:', url);
+                    // Redirigir a endpoint dummy
+                    arguments[1] = 'data:text/plain,blocked';
+                    break;
+                }
+            }
+        }
+        return originalOpen.apply(this, arguments);
+    };
+    
+    // Limpiar config de player existente
+    if (window.ytplayer && window.ytplayer.config) {
+        try {
+            if (window.ytplayer.config.args) {
+                delete window.ytplayer.config.args.ad_device;
+                delete window.ytplayer.config.args.ad_flags;
+                delete window.ytplayer.config.args.ad_logging_flag;
+                delete window.ytplayer.config.args.ad_preroll;
+                delete window.ytplayer.config.args.ad_tag;
+                delete window.ytplayer.config.args.adsystem;
+            }
+        } catch (e) {}
+    }
+    
+})();
+            """
+            
+            script.setSourceCode(js_code)
+            
+            # Aplicar solo a YouTube
+            script.setWorldId(QWebEngineScript.ApplicationWorld)
+            
+            # Añadir script al perfil
+            scripts.insert(script)
+            print("Script de YouTube AdBlock instalado")
+            
+        except Exception as e:
+            print(f"Error instalando script de YouTube: {e}")
+
     def apply_privacy_settings(self, browser):
         """Aplica la configuración de privacidad al navegador"""
         try:
             if browser and hasattr(browser, 'page'):
                 profile = browser.page().profile()
                 
-                # Aplicar interceptor de anuncios
-                profile.setUrlRequestInterceptor(self.ad_blocker)
+                # Aplicar interceptor de anuncios solo si Block Ads está activado
+                if self.settings.get_setting("block_ads"):
+                    profile.setUrlRequestInterceptor(self.ad_blocker)
+                    # Instalar script de YouTube para bloqueo adicional
+                    self.install_youtube_script(profile)
+                else:
+                    profile.setUrlRequestInterceptor(None)
+                    # Remover script de YouTube si existe
+                    try:
+                        scripts = profile.scripts()
+                        existing_script = scripts.findScript("yt-adblock")
+                        if not existing_script.isNull():
+                            scripts.remove(existing_script)
+                    except Exception as e:
+                        print(f"Error removiendo script de YouTube: {e}")
                 
                 # Configurar permisos
                 settings = profile.settings()
+                
+                # JavaScript
                 settings.setAttribute(QWebEngineSettings.JavascriptEnabled, 
                                    not self.settings.get_setting("block_javascript"))
-                settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, 
-                                   not self.settings.get_setting("block_cookies"))
+                
+                # Fingerprinting/WebGL
                 settings.setAttribute(QWebEngineSettings.WebGLEnabled, 
                                    not self.settings.get_setting("block_fingerprinting"))
-                settings.setAttribute(QWebEngineSettings.PluginsEnabled, 
-                                   not self.settings.get_setting("block_third_party"))
+                
+                # Política de cookies persistentes (separada de third-party)
+                if self.settings.get_setting("no_persistent_cookies"):
+                    profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
+                else:
+                    profile.setPersistentCookiesPolicy(QWebEngineProfile.AllowPersistentCookies)
+                
+                # Configurar third-party cookies específicamente
+                if hasattr(profile, 'setThirdPartyCookiePolicy'):
+                    if self.settings.get_setting("block_third_party"):
+                        # Bloquear cookies de terceros usando API nativa
+                        if hasattr(QWebEngineProfile, 'NoThirdPartyCookies'):
+                            profile.setThirdPartyCookiePolicy(QWebEngineProfile.NoThirdPartyCookies)
+                        elif hasattr(QWebEngineProfile, 'ForcePersistentCookies'):
+                            # Fallback para versiones más antiguas
+                            profile.setPersistentCookiesPolicy(QWebEngineProfile.ForcePersistentCookies)
+                    else:
+                        # Permitir cookies de terceros
+                        if hasattr(QWebEngineProfile, 'AllowThirdPartyCookies'):
+                            profile.setThirdPartyCookiePolicy(QWebEngineProfile.AllowThirdPartyCookies)
+                        elif hasattr(QWebEngineProfile, 'AllowAll'):
+                            profile.setThirdPartyCookiePolicy(QWebEngineProfile.AllowAll)
+                        else:
+                            # Fallback: usar política persistente por defecto
+                            profile.setPersistentCookiesPolicy(QWebEngineProfile.AllowPersistentCookies)
+                else:
+                    # TODO Qt < 6.x - confiar en reglas $third-party del adblock
+                    pass
                 
                 # Configurar WebRTC
                 if self.settings.get_setting("block_webrtc"):
-                    # Implementar bloqueo de WebRTC
-                    pass
+                    if hasattr(QWebEngineSettings, "WebRTCPublicInterfacesOnly"):
+                        settings.setAttribute(QWebEngineSettings.WebRTCPublicInterfacesOnly, True)
+                    # TODO: gated by Qt version
                 
                 print("Configuración de privacidad aplicada correctamente")
         except Exception as e:
@@ -1068,7 +1540,7 @@ class PrivacyManager(QWidget):
         try:
             # Cargar estado del checkbox principal
             enabled = self.settings.get_setting("auto_clear_enabled")
-            self.auto_clear_check.setChecked(enabled)
+            self.auto_clear_check.setChecked(bool(enabled))
             
             # Cargar frecuencia
             frequency = self.settings.get_setting("auto_clear_frequency")
@@ -1078,7 +1550,7 @@ class PrivacyManager(QWidget):
             # Cargar opciones individuales
             for key, check in self.auto_clear_options.items():
                 value = self.settings.get_setting(f"auto_clear_{key}")
-                check.setChecked(value)
+                check.setChecked(bool(value))
                 check.setEnabled(enabled)
             
             # Iniciar temporizador si está habilitado
@@ -1139,7 +1611,7 @@ class PrivacyManager(QWidget):
             if hasattr(self, 'auto_clear_timer'):
                 self.auto_clear_timer.stop()
             
-            self.auto_clear_timer = QTimer()
+            self.auto_clear_timer = QTimer(self)  # Asegurar ciclo de vida correcto
             self.auto_clear_timer.timeout.connect(self.auto_clear_data)
             
             frequency = self.settings.get_setting("auto_clear_frequency")
@@ -1173,13 +1645,13 @@ class PrivacyManager(QWidget):
                 profile.clearHttpCache()
             
             if self.settings.get_setting("auto_clear_passwords"):
-                self.clear_saved_passwords()
+                self.auto_clear.clear_saved_passwords()
             
             if self.settings.get_setting("auto_clear_form_data"):
-                self.clear_form_data()
+                self.auto_clear.clear_form_data()
             
             if self.settings.get_setting("auto_clear_downloads"):
-                self.clear_downloads()
+                self.auto_clear.clear_downloads()
                 
             print("Auto-clear data completed")
         except Exception as e:

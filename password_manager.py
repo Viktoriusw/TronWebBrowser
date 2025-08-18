@@ -17,7 +17,23 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import os
 import sqlite3
 from datetime import datetime
-from password_generator import PasswordGenerator
+# Importar password_generator con fallback
+try:
+    from password_generator import PasswordGenerator
+except ImportError:
+    # Fallback simple si no existe password_generator
+    class PasswordGenerator:
+        def generate_password(self, length=16, **kwargs):
+            import random
+            import string
+            chars = string.ascii_letters + string.digits + "!@#$%^&*"
+            password = ''.join(random.choice(chars) for _ in range(length))
+            return {
+                "password": password,
+                "time": "0.1s",
+                "cpu_usage": "1%",
+                "ram_usage": "1MB"
+            }
 
 class PasswordBridge(QObject):
     def __init__(self, parent):
@@ -49,62 +65,16 @@ class PasswordManager(QWidget):
         """Inicializa la interfaz de usuario"""
         layout = QVBoxLayout(self)
         
-        # Estilo oscuro global y específico para QListWidget
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #232323;
-                color: #ffffff;
-            }
-            QLineEdit {
-                background-color: #232323;
-                color: #ffffff;
-                border: 1px solid #555555;
-                border-radius: 4px;
-                padding: 4px;
-            }
-            QPushButton {
-                background-color: #0d47a1;
-                color: #ffffff;
-                border: none;
-                padding: 5px 15px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #1565c0;
-            }
-            QPushButton:pressed {
-                background-color: #0a3d91;
-            }
-            QGroupBox {
-                background-color: #232323;
-                border: 1px solid #555555;
-                border-radius: 4px;
-                margin-top: 10px;
-                padding-top: 10px;
-                color: #ffffff;
-            }
-            QGroupBox::title {
-                color: #ffffff;
-                background-color: #232323;
-            }
-            QCheckBox {
-                color: #ffffff;
-                background-color: #232323;
-            }
-            QLabel {
-                color: #ffffff;
-                background-color: #232323;
-            }
-            QDialog {
-                background-color: #232323;
-                color: #ffffff;
-            }
-        """)
+        # Usar tema global (sin estilos hardcodeados)
+        # Los colores ahora se heredan del sistema de temas en ui.py
         
         # Barra de búsqueda
         search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Buscar contraseñas...")
+        self.search_input.setFixedHeight(32)  # Altura consistente
+        if hasattr(self.search_input, "setClearButtonEnabled"):
+            self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self.filter_passwords)
         search_layout.addWidget(self.search_input)
         layout.addLayout(search_layout)

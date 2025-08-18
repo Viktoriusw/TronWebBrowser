@@ -2,7 +2,16 @@ from PySide6.QtCore import QUrl
 from downloads import DownloadManager
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import QThread
-from utils import format_url
+
+# Importar format_url con fallback
+try:
+    from utils import format_url
+except ImportError:
+    def format_url(url):
+        """Fallback URL formatter"""
+        if not url.startswith("http"):
+            return f"https://{url}"
+        return url
 
 
 class NavigationManager:

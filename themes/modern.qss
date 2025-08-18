@@ -1,0 +1,142 @@
+/* Estilos modernos compatibles con temas claro y oscuro */
+
+/* Toolbar compacta */     
+QToolBar { 
+    padding: 4px; 
+    spacing: 6px; 
+    border: none; 
+}
+
+/* URL bar y campos de entrada estilo pill */
+QLineEdit { 
+    border: 1px solid rgba(128,128,128,0.5); 
+    border-radius: 14px; 
+    padding: 6px 10px; 
+    min-height: 16px;
+}
+
+QLineEdit:focus {
+    border: 2px solid #007acc;
+    background: rgba(0,120,215,0.05);
+}
+
+/* Tabs estilo "2016" - adaptativo a temas */
+QTabWidget::pane { 
+    border: 1px solid rgba(128,128,128,0.4); 
+    top: -1px; 
+}
+
+QTabBar::tab { 
+    border: 1px solid rgba(128,128,128,0.4); 
+    border-bottom-color: rgba(128,128,128,0.3);
+    padding: 6px 12px; 
+    margin-right: 2px; 
+    border-top-left-radius: 6px; 
+    border-top-right-radius: 6px; 
+    min-width: 80px;
+}
+
+QTabBar::tab:selected { 
+    border-bottom-color: transparent; 
+    font-weight: 500;
+    background: rgba(0,120,215,0.08);
+}
+
+QTabBar::tab:hover { 
+    background: rgba(0,120,215,0.05);
+}
+
+QTabBar::close-button {
+    border-radius: 8px;
+    padding: 2px;
+}
+
+QTabBar::close-button:hover { 
+    background: rgba(255,0,0,0.1); 
+    border-radius: 8px; 
+}
+
+/* Dock headers discretos */
+QDockWidget::title { 
+    padding: 4px 8px; 
+    border: 1px solid rgba(128,128,128,0.3); 
+    font-weight: 500;
+}
+
+/* Botones con estilo moderno */
+QPushButton {
+    border: 1px solid rgba(128,128,128,0.4);
+    border-radius: 4px;
+    padding: 4px 8px;
+    min-height: 20px;
+}
+
+QPushButton:hover {
+    background: rgba(0,120,215,0.1);
+    border: 1px solid rgba(0,120,215,0.5);
+}
+
+QPushButton:pressed {
+    background: rgba(0,120,215,0.2);
+    border: 1px solid rgba(0,120,215,0.7);
+}
+
+/* ComboBox estilo moderno */
+QComboBox {
+    border: 1px solid rgba(128,128,128,0.4);
+    border-radius: 4px;
+    padding: 4px 8px;
+    min-height: 20px;
+}
+
+QComboBox:hover {
+    border: 1px solid rgba(0,120,215,0.6);
+    background: rgba(0,120,215,0.05);
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+
+QComboBox::down-arrow {
+    width: 12px;
+    height: 12px;
+}
+
+/* Scrollbars modernas */
+QScrollBar:vertical {
+    background: transparent;
+    width: 12px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical {
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+    min-height: 20px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: rgba(0,0,0,0.5);
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+}
+
+/* Group boxes modernos */
+QGroupBox {
+    font-weight: 500;
+    border: 1px solid rgba(0,0,0,0.2);
+    border-radius: 4px;
+    margin-top: 8px;
+    padding-top: 8px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 8px;
+}

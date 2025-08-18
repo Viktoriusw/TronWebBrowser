@@ -40,9 +40,12 @@ class DevToolsDock(QDockWidget):
             }
         """)
         
-        # Forzar tema oscuro en la vista web
-        self.dev_tools_view.page().setBackgroundColor(Qt.black)
-        self.dev_tools_view.setStyleSheet("background-color: #2b2b2b;")
+        # Forzar tema oscuro en la vista web (con manejo de errores)
+        try:
+            self.dev_tools_view.page().setBackgroundColor(Qt.black)
+        except Exception as e:
+            print(f"Error configurando color de fondo en DevTools: {e}")
+        # Los estilos de fondo ahora se heredan del tema global
 
     def set_browser(self, browser):
         """Establece el navegador actual para las DevTools"""

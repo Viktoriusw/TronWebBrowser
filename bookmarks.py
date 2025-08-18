@@ -132,21 +132,26 @@ class BookmarkManager(QObject):
             parsed_url = urlparse(url)
             favicon_url = f"{parsed_url.scheme}://{parsed_url.netloc}/favicon.ico"
             
-            # Descargar favicon
-            with urllib.request.urlopen(favicon_url) as response:
-                favicon_data = response.read()
-                pixmap = QPixmap()
-                pixmap.loadFromData(favicon_data)
-                
-                if not pixmap.isNull():
-                    self.favicon_cache[url] = pixmap
-                    return pixmap
+            # No descargar favicons durante la inicialización para evitar timeouts
+            # Los favicons se pueden cargar bajo demanda posteriormente
+            pass
                 
         except Exception as e:
             print(f"Error al obtener favicon: {str(e)}")
         
         # Favicon por defecto
-        return QPixmap(":/icons/bookmark.png")
+        default_pixmap = QPixmap()
+        try:
+            if not default_pixmap.load("icons/bookmark.png"):
+                # Crear un pixmap simple si no hay archivo
+                default_pixmap = QPixmap(16, 16)
+                default_pixmap.fill()
+        except:
+            # Último recurso: pixmap vacío
+            default_pixmap = QPixmap(16, 16)
+            default_pixmap.fill()
+            
+        return default_pixmap
 
     def create_bookmark_item(self, url, data):
         """Crea un item de marcador con favicon y tags"""
@@ -194,7 +199,7 @@ class BookmarkManager(QObject):
         # Cuarta fila: notas
         if 'notes' in data and data['notes']:
             notes_label = QLabel(data['notes'])
-            notes_label.setStyleSheet("color: #666; font-size: 10px;")
+            notes_label.setStyleSheet("font-size: 10px; opacity: 0.7;")
             notes_label.setWordWrap(True)
             layout.addWidget(notes_label)
         
@@ -345,7 +350,7 @@ class BookmarkManager(QObject):
             
             # Checkbox para mostrar en barra
             show_in_bar_checkbox = QCheckBox("Mostrar en barra de favoritos")
-            show_in_bar_checkbox.setChecked(data.get('show_in_bar', False))
+            show_in_bar_checkbox.setChecked(bool(data.get('show_in_bar', False)))
             layout.addWidget(show_in_bar_checkbox)
             
             # Botones

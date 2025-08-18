@@ -13,6 +13,7 @@ class TabManager:
         self.history_manager = history_manager
         self.parent = parent
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)  # Pestañas planas estilo 2016
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self.on_tab_changed)
@@ -110,7 +111,7 @@ class TabManager:
             open_in_new_tab = menu.addAction("Open in New Tab")
             menu.addSeparator()
             save_bookmark = menu.addAction("Save as Bookmark")
-            action = menu.exec_(browser.mapToGlobal(pos))
+            action = menu.exec(browser.mapToGlobal(pos))
             if action == back_action:
                 browser.back()
             elif action == forward_action:
@@ -154,6 +155,16 @@ class TabManager:
                 if hasattr(self.parent, 'url_bar'):
                     self.parent.url_bar.setText(current_browser.url().toString())
                 self.update_tab_title(current_browser.page().title(), current_browser)
+                
+                # Sincronizar con el módulo de scraping si está disponible
+                if hasattr(self.parent, 'scraping_integration') and self.parent.scraping_integration:
+                    current_url = current_browser.url().toString()
+                    # Actualizar el widget del navegador en el scraping integration
+                    self.parent.scraping_integration.browser_widget = current_browser
+                    # Obtener el HTML de la página actual
+                    current_browser.page().toHtml(
+                        lambda html_content: self.parent.scraping_integration.update_content(html_content, current_url)
+                    )
         except Exception as e:
             print(f"Error al cambiar de pestaña: {str(e)}")
 

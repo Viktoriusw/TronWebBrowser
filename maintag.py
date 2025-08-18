@@ -111,9 +111,12 @@ class BookmarkManager(QWidget):
         view_categories_btn.clicked.connect(self.show_categories)
         toolbar.addWidget(view_categories_btn)
 
-        # Search bar
+        # Search bar con estilo moderno
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search bookmarks...")
+        self.search_bar.setFixedHeight(32)  # Altura consistente con la modernización
+        if hasattr(self.search_bar, "setClearButtonEnabled"):
+            self.search_bar.setClearButtonEnabled(True)
         self.search_bar.textChanged.connect(self.search_bookmarks)
         toolbar.addWidget(self.search_bar)
         
@@ -190,29 +193,30 @@ class BookmarkManager(QWidget):
             QMessageBox.critical(self, "Database Error", f"Error initializing database: {str(e)}")
 
     def get_favicon(self, url):
-        """Obtiene el favicon de una URL"""
+        """Obtiene el favicon de una URL (sin bloquear)"""
         try:
             if url in self.favicon_cache:
                 return self.favicon_cache[url]
             
-            parsed_url = urlparse(url)
-            favicon_url = f"{parsed_url.scheme}://{parsed_url.netloc}/favicon.ico"
+            # No descargar favicons durante la inicialización para evitar timeouts
+            # Los favicons se cargarán bajo demanda posteriormente
             
-            # Descargar favicon
-            with urllib.request.urlopen(favicon_url) as response:
-                favicon_data = response.read()
-                pixmap = QPixmap()
-                pixmap.loadFromData(favicon_data)
-                
-                if not pixmap.isNull():
-                    self.favicon_cache[url] = pixmap
-                    return pixmap
-                
         except Exception as e:
             print(f"Error al obtener favicon: {str(e)}")
         
-        # Favicon por defecto
-        return QPixmap(":/icons/bookmark.png")
+        # Favicon por defecto siempre
+        default_pixmap = QPixmap()
+        try:
+            if not default_pixmap.load("icons/bookmark.png"):
+                # Crear un pixmap simple si no hay archivo
+                default_pixmap = QPixmap(16, 16)
+                default_pixmap.fill()
+        except:
+            # Último recurso: pixmap vacío
+            default_pixmap = QPixmap(16, 16)
+            default_pixmap.fill()
+            
+        return default_pixmap
 
     def load_bookmarks(self):
         self.tree.clear()
