@@ -26,6 +26,7 @@ try:
 except ImportError:
     PANDAS_AVAILABLE = False
     pd = None
+    print("⚠️ pandas no disponible - funciones de exportación CSV/Excel limitadas")
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Union, Set
 from dataclasses import dataclass, asdict
@@ -775,7 +776,11 @@ class ScrapingIntegration:
                 filepath = f"{filename}.csv"
                 # Create DataFrame with clean data if pandas available
                 if not PANDAS_AVAILABLE:
-                    return {"error": "pandas no está disponible para exportar CSV"}
+                    return {"error": "pandas no está disponible para exportar CSV. Instala pandas con: pip install pandas"}
+                
+                if not clean_elements:
+                    return {"error": "No hay elementos para exportar"}
+                    
                 df = pd.DataFrame(clean_elements)
                 
                 # Reorder columns for better readability
@@ -947,7 +952,7 @@ class ScrapingIntegration:
         """Get comprehensive system status"""
         try:
             status = {
-                "scrapelillo_available": True,
+                "scrapelillo_available": False,  # Scrapelillo es independiente del navegador
                 "components": {
                     "config_manager": hasattr(self, 'config_manager'),
                     "ethical_scraper": hasattr(self, 'ethical_scraper'),

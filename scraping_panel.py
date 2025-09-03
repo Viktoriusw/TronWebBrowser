@@ -18,7 +18,8 @@ class ScrapingPanel(QWidget):
     def __init__(self, scraping_integration, parent=None):
         super().__init__(parent)
         self.scraping_integration = scraping_integration
-        self.setup_ui()
+        self.browser_tab = None  # Inicializar referencia al navegador
+        self.setup_ui()  # Llamar setup_ui para construir la interfaz
     
     def setup_ui(self):
         """Setup complete UI with REAL scraping functionality"""
@@ -835,7 +836,7 @@ class ScrapingPanel(QWidget):
             
             if "error" not in result:
                 display_text = f"ℹ️ ESTADO DEL SISTEMA\n"
-                display_text += f"🔧 Scrapelillo disponible: {result.get('scrapelillo_available', False)}\n"
+                display_text += f"🔧 Sistema de scraping integrado: {'✅ Activo' if result.get('components', {}) else '❌ Inactivo'}\n"
                 display_text += f"📦 Componentes: {len(result.get('components', {}))}\n\n"
                 
                 if result.get('current_state'):

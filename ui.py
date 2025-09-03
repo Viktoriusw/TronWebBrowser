@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QMainWindow, QToolBar, QPushButton, QLineEdit, 
                               QDockWidget, QMenu, QMessageBox, QWidget, QVBoxLayout,
                               QSplitter, QFrame, QCheckBox, QTabWidget, QTextEdit,
-                              QHBoxLayout, QLabel, QSpinBox, QComboBox)
+                              QHBoxLayout, QLabel, QSpinBox, QComboBox, QStackedWidget)
 from PySide6.QtCore import Qt, QUrl, QSettings, QSize
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
 from PySide6.QtGui import QIcon, QPalette, QColor, QAction, QCursor
@@ -52,34 +52,29 @@ except ImportError as e:
     print(f"Advertencia: Módulo de chat con IA no disponible - {e}")
 
 class MainWindow(QMainWindow):
+    # Constantes de UI
+    BTN_BOX = 32  # caja del botón
+    ICON_18 = QSize(18, 18)
+    
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Tron Browser")
         self.setGeometry(100, 100, 1200, 800)
         
-        # Configurar ventana sin bordes internos
+        # Configurar ventana sin bordes internos y eliminar espacio inferior
+        self.setContentsMargins(0, 0, 0, 0)
+        
+        # Ocultar status bar si existe para eliminar espacio inferior
+        if hasattr(self, 'statusBar'):
+            self.statusBar().hide()
+        
         self.setStyleSheet("""
             QMainWindow {
-                border: none;
+                border: 1px solid #dcdcdc;
                 margin: 0px;
                 padding: 0px;
             }
         """)
-        
-        # Crear el widget principal
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        
-        # Crear el layout principal horizontal para barra lateral SIN márgenes
-        main_layout = QHBoxLayout(main_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)  # Sin márgenes
-        main_layout.setSpacing(0)  # Sin espaciado
-        
-        # Crear el contenedor principal (navegador)
-        browser_container = QWidget()
-        browser_layout = QVBoxLayout(browser_container)
-        browser_layout.setContentsMargins(0, 0, 0, 0)
-        browser_layout.setSpacing(0)
         
         # Inicializar componentes en el orden correcto
         self.history_manager = HistoryManager()
@@ -92,17 +87,53 @@ class MainWindow(QMainWindow):
         # Crear la barra de navegación después de tener navigation_manager
         self.nav_bar = QToolBar("Navigation")
         self.setup_nav_bar()
-        browser_layout.addWidget(self.nav_bar)
         
-        # Configurar el widget del navegador (pestañas)
-        browser_layout.addWidget(self.tab_manager.tabs)
+        # Crear contenedor principal con QVBoxLayout para nav_bar y contenido
+        main_container = QWidget()
+        main_layout = QVBoxLayout(main_container)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addWidget(self.nav_bar)
         
-        # Añadir el contenedor principal al layout
-        main_layout.addWidget(browser_container)
+        # Crear splitter horizontal REDIMENSIONABLE pero con barra lateral fija
+        content_splitter = QSplitter(Qt.Horizontal)
+        content_splitter.setChildrenCollapsible(False)  # No permitir colapsar completamente
         
-        # Crear barra lateral derecha
-        self.setup_right_sidebar()
-        main_layout.addWidget(self.sidebar)
+        # Agregar pestañas (se expande)
+        content_splitter.addWidget(self.tab_manager.tabs)
+        
+        # Configurar stacked widget para paneles avanzados (inicialmente oculto)
+        self.advanced_panel_stack = QStackedWidget()
+        self.advanced_panel_stack.setMinimumWidth(0)
+        self.advanced_panel_stack.setMaximumWidth(0)  # oculto por defecto
+        self.advanced_panel_stack.hide()
+        content_splitter.addWidget(self.advanced_panel_stack)
+        
+        # Crear contenedor para la barra lateral (NO redimensionable)
+        sidebar_container = QWidget()
+        sidebar_container.setFixedWidth(44)  # Ancho FIJO
+        sidebar_layout = QVBoxLayout(sidebar_container)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+        
+        # Configurar barra lateral vertical FIJA
+        self.side_strip = QToolBar()
+        self.side_strip.setOrientation(Qt.Vertical)
+        self.side_strip.setMovable(False)
+        self.side_strip.setFixedWidth(44)
+        self.side_strip.setFloatable(False)
+        self.setup_side_strip()
+        sidebar_layout.addWidget(self.side_strip)
+        
+        content_splitter.addWidget(sidebar_container)
+        
+        # Configurar proporciones: pestañas expandibles, panel redimensionable, sidebar fija
+        content_splitter.setStretchFactor(0, 1)  # Pestañas se expanden
+        content_splitter.setStretchFactor(1, 0)  # Panel tamaño específico
+        content_splitter.setStretchFactor(2, 0)  # Sidebar FIJA (no redimensionable)
+        
+        main_layout.addWidget(content_splitter)
+        self.setCentralWidget(main_container)
         
         # Configurar paneles dock
         self.setup_dock_widgets()
@@ -141,6 +172,8 @@ class MainWindow(QMainWindow):
         self.favorites_bar.hide()  # Inicialmente oculta
         # Conectar señal de clic en favorito
         self.favorites_bar.favorite_clicked.connect(self.load_url)
+        
+        # Eliminar conexión de pestaña para estrella (botón eliminado)
         
         # Configurar Privacy Manager
         self.privacy_manager = PrivacyManager(self)
@@ -223,8 +256,8 @@ class MainWindow(QMainWindow):
         pass
 
     def setup_nav_bar(self):
-        # Configurar toolbar moderno
-        self.nav_bar.setIconSize(QSize(20, 20))
+        # Configurar toolbar moderno con constantes uniformes
+        self.nav_bar.setIconSize(self.ICON_18)
         self.nav_bar.setToolButtonStyle(Qt.ToolButtonIconOnly)
         
         # Back Button
@@ -252,12 +285,15 @@ class MainWindow(QMainWindow):
         history_action.triggered.connect(lambda: self.history_manager.show_history(self.tab_manager))
         self.nav_bar.addAction(history_action)
 
-        # URL Bar con estilo pill
+        # URL Bar con estilo pill y estrella de favoritos
         self.url_bar = UrlBar(load_url_callback=self.load_url)
         self.url_bar.returnPressed.connect(lambda: self.load_url(self.url_bar.text()))
         self.url_bar.setFixedHeight(32)
         if hasattr(self.url_bar, "setClearButtonEnabled"):
             self.url_bar.setClearButtonEnabled(True)
+        
+        # Eliminar botón de favorito que no funciona correctamente
+        
         self.nav_bar.addWidget(self.url_bar)
 
         # Solo guardar referencia de las acciones para aplicar iconos después
@@ -282,108 +318,64 @@ class MainWindow(QMainWindow):
             print(f"⚠️ Usando iconos PNG como fallback: {e}")
             pass  # Fallback: usar los QIcon("icons/*.png") ya definidos
 
-    def setup_right_sidebar(self):
-        """Configura la barra lateral derecha con botones de funciones"""
-        # Crear el widget de la barra lateral
-        self.sidebar = QWidget()
-        self.sidebar.setFixedWidth(60)  # Ancho fijo de barra lateral
-        self.sidebar.setStyleSheet("""
-            QWidget {
-                border: none;
-                border-left: 1px solid rgba(128,128,128,0.2);
-                border-radius: 0px;
-                margin: 0px;
-                padding: 0px;
-            }
-        """)
+    def setup_side_strip(self):
+        """Configura la barra lateral vertical fija con botones estándar"""
+        # Configurar iconos con tamaño estándar
+        self.side_strip.setIconSize(self.ICON_18)
+        self.side_strip.setToolButtonStyle(Qt.ToolButtonIconOnly)
         
-        # Layout vertical para los botones
-        sidebar_layout = QVBoxLayout(self.sidebar)
-        sidebar_layout.setContentsMargins(6, 8, 6, 8)  # Márgenes mínimos pero funcionales
-        sidebar_layout.setSpacing(4)
+        # Función helper para crear acciones de la barra lateral
+        def create_strip_action(icon_path, tooltip, callback):
+            action = QAction(QIcon(icon_path), tooltip, self)
+            action.triggered.connect(callback)
+            return action
         
-        # Función helper para crear botones de barra lateral
-        def create_sidebar_button(icon_name, tooltip, callback, icon_fallback=None):
-            btn = QPushButton()
-            btn.setFixedSize(48, 48)
-            btn.setToolTip(tooltip)
-            btn.clicked.connect(callback)
-            btn.setStyleSheet("""
-                QPushButton {
-                    border: 1px solid rgba(128,128,128,0.4);
-                    border-radius: 6px;
-                    padding: 8px;
-                }
-                QPushButton:hover {
-                    background: rgba(0,120,215,0.1);
-                    border: 1px solid rgba(0,120,215,0.5);
-                }
-                QPushButton:pressed {
-                    background: rgba(0,120,215,0.2);
-                }
-            """)
-            
-            # Aplicar icono
-            try:
-                import qtawesome as qta
-                btn.setIcon(qta.icon(icon_name))
-                btn.setIconSize(QSize(24, 24))
-            except:
-                if icon_fallback:
-                    btn.setIcon(QIcon(icon_fallback))
-                    btn.setIconSize(QSize(24, 24))
-                else:
-                    btn.setText(tooltip[:2])  # Usar primeras 2 letras como fallback
-            
-            return btn
+        # Crear acciones de funciones
+        self.fav_action = create_strip_action('icons/heart.png', 'Guardar Favorito', 
+                                            self.show_save_favorite_menu)
+        self.side_strip.addAction(self.fav_action)
         
-        # Crear botones de funciones
-        self.fav_btn = create_sidebar_button('fa.heart', 'Guardar Favorito', 
-                                           self.show_save_favorite_menu, 'icons/heart.png')
-        sidebar_layout.addWidget(self.fav_btn)
+        self.privacy_action = create_strip_action('icons/lock.png', 'Privacidad', 
+                                                self.toggle_privacy_panel)
+        self.side_strip.addAction(self.privacy_action)
         
-        self.privacy_btn = create_sidebar_button('fa.lock', 'Privacidad', 
-                                               self.toggle_privacy_panel, 'icons/lock.png')
-        sidebar_layout.addWidget(self.privacy_btn)
+        self.password_action = create_strip_action('icons/key.png', 'Gestor de Contraseñas', 
+                                                 self.toggle_password_manager)
+        self.side_strip.addAction(self.password_action)
         
-        self.password_btn = create_sidebar_button('fa.key', 'Gestor de Contraseñas', 
-                                                self.toggle_password_manager, 'icons/key.png')
-        sidebar_layout.addWidget(self.password_btn)
-        
-        self.devtools_btn = create_sidebar_button('fa.wrench', 'DevTools', 
-                                                self.toggle_devtools, 'icons/wrench.png')
-        sidebar_layout.addWidget(self.devtools_btn)
+        self.devtools_action = create_strip_action('icons/wrench.png', 'DevTools', 
+                                                 self.toggle_devtools)
+        self.side_strip.addAction(self.devtools_action)
         
         # Botones condicionales
         if SCRAPING_AVAILABLE:
-            self.scraping_btn = create_sidebar_button('fa.search', 'Scraping', 
-                                                    self.toggle_scraping_panel, 'icons/scrap.png')
-            sidebar_layout.addWidget(self.scraping_btn)
+            self.scraping_action = create_strip_action('icons/scrap.png', 'Scraping', 
+                                                     self.toggle_scraping_panel)
+            self.side_strip.addAction(self.scraping_action)
         
         if PROXY_AVAILABLE:
-            self.proxy_btn = create_sidebar_button('fa.globe', 'Proxies', 
-                                                 self.toggle_proxy_panel, 'icons/proxy.png')
-            sidebar_layout.addWidget(self.proxy_btn)
+            self.proxy_action = create_strip_action('icons/proxy.png', 'Proxies', 
+                                                  self.toggle_proxy_panel)
+            self.side_strip.addAction(self.proxy_action)
         
         if CHAT_AVAILABLE:
-            self.chat_btn = create_sidebar_button('fa.commenting', 'Chat IA', 
-                                                self.toggle_chat_panel, 'icons/chat.png')
-            sidebar_layout.addWidget(self.chat_btn)
+            self.chat_action = create_strip_action('icons/chat.png', 'Chat IA', 
+                                                 self.toggle_chat_panel)
+            self.side_strip.addAction(self.chat_action)
         
-        self.bookmark_btn = create_sidebar_button('fa.bookmark', 'Marcadores', 
-                                                self.toggle_bookmark_manager, 'icons/bookmark.png')
-        sidebar_layout.addWidget(self.bookmark_btn)
+        self.bookmark_action = create_strip_action('icons/bookmark.png', 'Marcadores', 
+                                                 self.toggle_bookmark_manager)
+        self.side_strip.addAction(self.bookmark_action)
         
-        self.favorites_btn = create_sidebar_button('fa.star', 'Barra de Favoritos', 
-                                                 self.toggle_favorites_bar, 'icons/heart.png')
-        sidebar_layout.addWidget(self.favorites_btn)
+        self.favorites_action = create_strip_action('icons/heart.png', 'Barra de Favoritos', 
+                                                  self.toggle_favorites_bar)
+        self.side_strip.addAction(self.favorites_action)
         
-        self.theme_btn = create_sidebar_button('fa.adjust', 'Cambiar Tema', 
-                                             self.toggle_theme, 'icons/settings.png')
-        sidebar_layout.addWidget(self.theme_btn)
+        self.theme_action = create_strip_action('icons/settings.png', 'Cambiar Tema', 
+                                              self.toggle_theme)
+        self.side_strip.addAction(self.theme_action)
         
-        # Espaciador flexible para empujar botones hacia arriba
-        sidebar_layout.addStretch()
+
 
     def load_theme(self):
         """Carga el tema guardado o usa el tema por defecto"""
@@ -399,24 +391,28 @@ class MainWindow(QMainWindow):
         self.settings.setValue("theme", theme)
 
     def set_dark_theme(self):
-        """Aplica el tema oscuro"""
+        """Aplica el tema oscuro con solo 2 tonos de gris"""
         from PySide6.QtWidgets import QApplication
         
-        # Usar paleta Qt nativa para tema oscuro
+        # TEMA OSCURO - Solo 2 tonos de gris
+        DARK_BG = QColor(40, 40, 40)      # Fondo principal (#282828)
+        DARK_SURFACE = QColor(55, 55, 55)  # Superficie elevada (#373737)
+        
+        # Usar paleta Qt nativa para tema oscuro homogéneo
         palette = QPalette()
-        palette.setColor(QPalette.Window, QColor(53, 53, 53))
-        palette.setColor(QPalette.WindowText, Qt.white)
-        palette.setColor(QPalette.Base, QColor(25, 25, 25))
-        palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
-        palette.setColor(QPalette.ToolTipBase, Qt.white)
+        palette.setColor(QPalette.Window, DARK_BG)           # Fondo general
+        palette.setColor(QPalette.WindowText, Qt.white)     # Texto general
+        palette.setColor(QPalette.Base, DARK_SURFACE)       # Campos de entrada
+        palette.setColor(QPalette.AlternateBase, DARK_BG)   # Filas alternas
+        palette.setColor(QPalette.ToolTipBase, DARK_SURFACE)
         palette.setColor(QPalette.ToolTipText, Qt.white)
-        palette.setColor(QPalette.Text, Qt.white)
-        palette.setColor(QPalette.Button, QColor(53, 53, 53))
-        palette.setColor(QPalette.ButtonText, Qt.white)
+        palette.setColor(QPalette.Text, Qt.white)           # Texto en campos
+        palette.setColor(QPalette.Button, DARK_SURFACE)     # Botones
+        palette.setColor(QPalette.ButtonText, Qt.white)     # Texto botones
         palette.setColor(QPalette.BrightText, Qt.red)
         palette.setColor(QPalette.Link, QColor(42, 130, 218))
         palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
-        palette.setColor(QPalette.HighlightedText, Qt.black)
+        palette.setColor(QPalette.HighlightedText, Qt.white)
         
         # Aplicar a toda la aplicación
         app = QApplication.instance()
@@ -490,54 +486,317 @@ class MainWindow(QMainWindow):
             QTreeWidget { color: #000000; background-color: #ffffff; }
             QTableWidget { color: #000000; background-color: #ffffff; }
             
-            /* Overrides específicos */
+            /* Overrides específicos - TEMA CLARO */
             QToolBar { background: #f5f6f7; color: #000000; margin: 0px; border: none; }
             QTabWidget::pane { background: #f8f8f8; margin: 0px; }
             QTabBar::tab { background: #ececec; color: #000000; }
             QTabBar::tab:selected { background: #ffffff; color: #000000; }
             QDockWidget::title { background: #f0f0f0; color: #000000; }
+            
+            /* Botones de barra lateral y superior - TEMA CLARO */
+            QToolBar QToolButton, #SideStrip QToolButton {
+                background: #ffffff;
+                color: #000000;
+                border: 1px solid rgba(128,128,128,0.3);
+            }
+            QToolBar QToolButton:hover, #SideStrip QToolButton:hover {
+                background: rgba(0,120,215,0.1);
+                border: 1px solid rgba(0,120,215,0.5);
+            }
+            
+            /* Scrollbar claro - TEMA CLARO */
+            QScrollBar:vertical, QScrollBar:horizontal {
+                background: #f0f0f0;
+                border: none;
+            }
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+                background: #c0c0c0;
+                min-height: 24px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+                background: #a0a0a0;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                background: none;
+                border: none;
+            }
+            
+            /* ---- Chat panel en tema CLARO ---- */
+            #chatPanel {
+                background: #f7f7f8;
+            }
+            #chatScroll {
+                background: transparent;
+                border: none;
+            }
+            #userBubble, #assistantBubble, #errorBubble {
+                border-radius: 14px;
+                margin-bottom: 8px;
+                padding: 12px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                min-height: 40px;
+            }
+            #userBubble {
+                background: #e3f2fd;
+                border-left: 4px solid #2196f3;
+                color: #1565c0;
+            }
+            #assistantBubble {
+                background: #f1f8e9;
+                border-left: 4px solid #4caf50;
+                color: #2e7d32;
+            }
+            #errorBubble {
+                background: #ffebee;
+                border-left: 4px solid #f44336;
+                color: #c62828;
+            }
+            #bubbleTitle {
+                font-size: 13px;
+                margin-bottom: 2px;
+                font-weight: bold;
+            }
+            #bubbleMsg {
+                font-size: 14px;
+                line-height: 1.6;
+                padding: 4px 0px;
+                word-wrap: break-word;
+            }
+            #chatInputFrame {
+                background: #f7f7f8;
+                border-top: 1px solid #e0e0e0;
+                padding: 8px 0 0 0;
+            }
+            #chatInput {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                border: 1.5px solid #e0e0e0;
+                border-radius: 10px;
+                font-size: 15px;
+                padding: 10px 14px;
+            }
+            #chatInput:focus {
+                border: 2px solid #2196f3;
+                background: #ffffff;
+            }
+            #chatSend {
+                background-color: #2196f3;
+                color: #ffffff;
+                border: none;
+                border-radius: 10px;
+                font-weight: bold;
+                padding: 0 18px;
+                min-width: 80px;
+                min-height: 36px;
+            }
+            #chatSend:disabled {
+                background: #e0e0e0;
+                color: #999999;
+            }
+            #chatSend:hover { background-color: #1976d2; }
+            #chatSend:pressed { background-color: #1565c0; }
+            
+            #contextInfo {
+                color: #666666 !important;
+                font-style: italic;
+            }
+            
+            #chatHistory {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+            }
             """
             
             app = QApplication.instance()
-            app.setStyleSheet(custom_qss + "\n" + light_qss)
+            app.setStyleSheet(custom_qss + "\n" + light_qss + "\n" + self._close_button_qss())
+            
         except Exception as e:
             print(f"Error aplicando estilos del tema claro: {e}")
 
     def _apply_dark_styles(self):
-        """Aplica estilos QSS para tema oscuro"""
+        """Aplica estilos QSS para tema oscuro HOMOGÉNEO (solo 2 tonos)"""
         try:
             from PySide6.QtWidgets import QApplication
             custom_qss = self._load_custom_styles()
             
-            # Estilos específicos para tema oscuro
+            # TEMA OSCURO HOMOGÉNEO - Solo 2 tonos de gris (#282828, #373737)
             dark_qss = """
-            /* Tema oscuro - Fuentes claras */
+            /* Tema oscuro - Fuentes claras, solo 2 tonos de gris */
             * { color: #ffffff; margin: 0px; padding: 0px; border: none; }
             QMainWindow { margin: 0px; padding: 0px; border: none; }
-            QWidget { color: #ffffff; background-color: #2b2b2b; margin: 0px; }
+            QWidget { color: #ffffff; background-color: #282828; margin: 0px; }
             QLabel { color: #ffffff; }
-            QLineEdit { color: #ffffff; background-color: #404040; }
-            QPushButton { color: #ffffff; background-color: #404040; }
-            QGroupBox { color: #ffffff; }
+            QLineEdit { color: #ffffff !important; background-color: #373737 !important; border: 1px solid #4a4a4a; }
+            QLineEdit:focus { color: #ffffff !important; background-color: #373737 !important; border: 2px solid #0078d4; }
+            QPushButton { color: #ffffff; background-color: #373737; border: 1px solid #4a4a4a; }
+            QGroupBox { color: #ffffff; background-color: #282828; }
             QCheckBox { color: #ffffff; }
-            QComboBox { color: #ffffff; background-color: #404040; }
-            QListWidget { color: #ffffff; background-color: #353535; }
-            QTextEdit { color: #ffffff; background-color: #353535; }
-            QTreeWidget { color: #ffffff; background-color: #353535; }
-            QTableWidget { color: #ffffff; background-color: #353535; }
+            QComboBox { color: #ffffff; background-color: #373737; border: 1px solid #4a4a4a; }
+            QListWidget { color: #ffffff; background-color: #373737; }
+            QTextEdit { color: #ffffff; background-color: #373737; }
+            QTreeWidget { color: #ffffff; background-color: #373737; }
+            QTableWidget { color: #ffffff; background-color: #373737; }
+            QSpinBox { color: #ffffff; background-color: #373737; border: 1px solid #4a4a4a; }
+            QSlider { background-color: #282828; }
+            QProgressBar { background-color: #373737; color: #ffffff; }
+            QTabWidget { background-color: #282828; }
             
-            /* Overrides específicos */
-            QToolBar { background: #3c3c3c; color: #ffffff; margin: 0px; border: none; }
-            QTabWidget::pane { background: #2b2b2b; margin: 0px; }
-            QTabBar::tab { background: #404040; color: #ffffff; }
-            QTabBar::tab:selected { background: #535353; color: #ffffff; }
-            QDockWidget::title { background: #404040; color: #ffffff; }
+            /* Overrides específicos - TEMA OSCURO */
+            QToolBar { background: #373737; color: #ffffff; margin: 0px; border: none; }
+            QTabWidget::pane { background: #282828; margin: 0px; border: 1px solid #4a4a4a; }
+            QTabBar::tab { background: #373737; color: #ffffff !important; border: 1px solid #4a4a4a; }
+            QTabBar::tab:selected { background: #282828; color: #ffffff !important; border-bottom: none; }
+            QTabBar::tab:!selected { background: #373737; color: #ffffff !important; }
+            QTabBar::tab:hover { background: #404040; color: #ffffff !important; }
+            QDockWidget::title { background: #373737; color: #ffffff; }
+            
+            /* Botones de barra lateral y superior - TEMA OSCURO más claros */
+            QToolBar QToolButton, #SideStrip QToolButton {
+                background: #44474f;
+                color: #ffffff;
+                border: 1px solid #5a5f6a;
+            }
+            QToolBar QToolButton:hover, #SideStrip QToolButton:hover {
+                background: #525761;
+                border: 1px solid #6c7a89;
+            }
+            QToolBar QToolButton:pressed, #SideStrip QToolButton:pressed {
+                background: #404450;
+            }
+            
+            /* Scrollbar oscuro - TEMA OSCURO */
+            QScrollBar:vertical, QScrollBar:horizontal {
+                background: #282828;
+                border: none;
+                width: 12px;
+            }
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+                background: #5a5f6a;
+                min-height: 24px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+                background: #6c7a89;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                background: none;
+                border: none;
+            }
+            
+            /* ---- Chat panel en tema OSCURO ---- */
+            #chatPanel {
+                background: #23272f;
+            }
+            #chatScroll {
+                background: transparent;
+                border: none;
+            }
+            #userBubble, #assistantBubble, #errorBubble {
+                border-radius: 14px;
+                margin-bottom: 8px;
+                padding: 12px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+                min-height: 40px;
+            }
+            #userBubble {
+                background: #2b2f3a;
+                border-left: 4px solid #409eff;
+                color: #eaeaea;
+            }
+            #assistantBubble {
+                background: #1f2530;
+                border-left: 4px solid #67c23a;
+                color: #e8e8e8;
+            }
+            #errorBubble {
+                background: #3a2525;
+                border-left: 4px solid #e74c3c;
+                color: #ffdada;
+            }
+            #bubbleTitle {
+                font-size: 13px;
+                margin-bottom: 2px;
+                font-weight: bold;
+            }
+            #bubbleMsg {
+                font-size: 14px;
+                line-height: 1.6;
+                padding: 4px 0px;
+                word-wrap: break-word;
+            }
+            #chatInputFrame {
+                background: #23272f;
+                border-top: 1px solid #333;
+                padding: 8px 0 0 0;
+            }
+            #chatInput {
+                background-color: #2b2b2b !important;
+                color: #ffffff !important;
+                border: 1.5px solid #4a4a4a;
+                border-radius: 10px;
+                font-size: 15px;
+                padding: 10px 14px;
+            }
+            #chatInput:focus {
+                border: 2px solid #409eff;
+                background: #2b2b2b;
+            }
+            #chatSend {
+                background-color: #409eff;
+                color: #ffffff;
+                border: none;
+                border-radius: 10px;
+                font-weight: bold;
+                padding: 0 18px;
+                min-width: 80px;
+                min-height: 36px;
+            }
+            #chatSend:disabled {
+                background: #6c7a89;
+                color: #cccccc;
+            }
+            #chatSend:hover { background-color: #5dade2; }
+            #chatSend:pressed { background-color: #2980b9; }
+            
+            #contextInfo {
+                color: #dcdcdc !important;
+                font-style: italic;
+            }
+            
+            #chatHistory {
+                background-color: #2b2b2b !important;
+                color: #ffffff !important;
+            }
             """
             
             app = QApplication.instance()
-            app.setStyleSheet(custom_qss + "\n" + dark_qss)
+            app.setStyleSheet(custom_qss + "\n" + dark_qss + "\n" + self._close_button_qss())
+            
+
         except Exception as e:
             print(f"Error aplicando estilos del tema oscuro: {e}")
+
+    def _close_button_qss(self) -> str:
+        """Genera QSS para el botón de cierre con ruta absoluta"""
+        import os
+        path = os.path.abspath(os.path.join(os.path.dirname(__file__), "icons", "close.png"))
+        path = path.replace("\\", "/")  # Qt QSS necesita / incluso en Windows
+        return f"""
+        /* Override explícito del icono de cierre de pestañas */
+        QTabBar::close-button {{
+            image: url("{path}");
+            width: 16px; height: 16px;
+            subcontrol-position: right;
+            margin-left: 6px;
+        }}
+        QTabBar::close-button:hover {{
+            background: rgba(0,0,0,0.12);
+            border-radius: 8px;
+        }}
+        """
 
     def _apply_custom_styles(self):
         """Método legacy - mantener por compatibilidad"""
@@ -551,25 +810,89 @@ class MainWindow(QMainWindow):
         self.apply_theme(new_theme)
 
     def toggle_bookmark_manager(self):
-        """Alterna la visibilidad del gestor de marcadores"""
-        if self.bookmark_dock.isVisible():
-            self.bookmark_dock.hide()
-        else:
-            self.bookmark_dock.show()
+        """Alterna la visibilidad del gestor de marcadores USANDO EL STACK FIJO"""
+        if hasattr(self, 'bookmark_manager') and self.bookmark_manager:
+            if (self.advanced_panel_stack.currentWidget() == self.bookmark_manager and 
+                self.advanced_panel_stack.isVisible()):
+                self.hide_advanced_panel()
+            else:
+                self.show_advanced_panel(self.bookmark_manager)
 
     def toggle_privacy_panel(self):
-        """Alterna la visibilidad del panel de privacidad"""
-        if self.privacy_dock.isVisible():
-            self.privacy_dock.hide()
-        else:
-            self.privacy_dock.show()
+        """Alterna la visibilidad del panel de privacidad USANDO EL STACK FIJO"""
+        if hasattr(self, 'privacy_manager') and self.privacy_manager:
+            if (self.advanced_panel_stack.currentWidget() == self.privacy_manager and 
+                self.advanced_panel_stack.isVisible()):
+                self.hide_advanced_panel()
+            else:
+                self.show_advanced_panel(self.privacy_manager)
 
     def toggle_password_manager(self):
-        """Alterna la visibilidad del gestor de contraseñas"""
-        if self.password_dock.isVisible():
-            self.password_dock.hide()
-        else:
-            self.password_dock.show()
+        """Alterna la visibilidad del gestor de contraseñas USANDO EL STACK FIJO"""
+        if hasattr(self, 'password_manager') and self.password_manager:
+            if (self.advanced_panel_stack.currentWidget() == self.password_manager and 
+                self.advanced_panel_stack.isVisible()):
+                self.hide_advanced_panel()
+            else:
+                self.show_advanced_panel(self.password_manager)
+
+    def show_advanced_panel(self, widget):
+        """Muestra un panel avanzado REDIMENSIONABLE sin mover la barra lateral"""
+        if widget is None:
+            self.hide_advanced_panel()
+            return
+        if self.advanced_panel_stack.indexOf(widget) < 0:
+            self.advanced_panel_stack.addWidget(widget)
+        self.advanced_panel_stack.setCurrentWidget(widget)
+        
+        # Hacer el panel REDIMENSIONABLE con límites razonables
+        self.advanced_panel_stack.setMinimumWidth(350)   # Mínimo para ver contenido
+        self.advanced_panel_stack.setMaximumWidth(1000)  # Máximo generoso
+        self.advanced_panel_stack.show()
+        
+        # Establecer tamaño inicial para el splitter (esto es redimensionable)
+        content_splitter = self.advanced_panel_stack.parent()
+        if hasattr(content_splitter, 'setSizes'):
+            # Dar tamaño inicial: pestañas 70%, panel 30%
+            total_width = content_splitter.width() - 44  # Restar ancho de sidebar
+            panel_width = min(450, total_width * 0.3)  # 30% o 450px, lo que sea menor
+            tabs_width = total_width - panel_width
+            content_splitter.setSizes([int(tabs_width), int(panel_width), 44])
+    
+    def hide_advanced_panel(self):
+        """Oculta el panel avanzado actual"""
+        self.advanced_panel_stack.setMinimumWidth(0)
+        self.advanced_panel_stack.setMaximumWidth(0)
+        self.advanced_panel_stack.hide()
+        
+        # Resetear el splitter para dar todo el espacio a las pestañas
+        content_splitter = self.advanced_panel_stack.parent()
+        if hasattr(content_splitter, 'setSizes'):
+            total_width = content_splitter.width() - 44
+            content_splitter.setSizes([total_width, 0, 44])
+
+    # Métodos del botón de favorito eliminados - no funcionaban correctamente
+
+    def update_bookmark_star(self, url):
+        """Actualiza el estado de la estrella de favoritos según la URL"""
+        try:
+            # Verificar si ya está en favoritos
+            is_bookmarked = self.bookmark_manager.is_bookmarked(url)
+                
+            if is_bookmarked:
+                if self.url_star_action != self.star_filled:
+                    self.url_bar.removeAction(self.url_star_action)
+                    self.url_star_action = self.star_filled
+                    self.url_bar.addAction(self.star_filled, QLineEdit.TrailingPosition)
+                    self.url_star_action.triggered.connect(self.toggle_bookmark_for_current_url)
+            else:
+                if self.url_star_action != self.star_outline:
+                    self.url_bar.removeAction(self.url_star_action)
+                    self.url_star_action = self.star_outline
+                    self.url_bar.addAction(self.star_outline, QLineEdit.TrailingPosition)
+                    self.url_star_action.triggered.connect(self.toggle_bookmark_for_current_url)
+        except Exception as e:
+            print(f"Error updating bookmark star: {e}")
 
     def load_url(self, url):
         """Carga una URL o realiza una búsqueda en DuckDuckGo"""
@@ -698,52 +1021,45 @@ class MainWindow(QMainWindow):
                 self.devtools_dock.setMinimumHeight(300)
 
     def toggle_scraping_panel(self):
-        """Alterna la visibilidad del panel de scraping"""
-        if SCRAPING_AVAILABLE and self.scraping_dock:
-            if self.scraping_dock.isVisible():
-                self.scraping_dock.hide()
-                self.statusBar().showMessage("Panel de Scraping oculto", 3000)
+        """Alterna la visibilidad del panel de scraping USANDO EL STACK FIJO"""
+        if SCRAPING_AVAILABLE and hasattr(self, 'scraping_panel') and self.scraping_panel:
+            if (self.advanced_panel_stack.currentWidget() == self.scraping_panel and 
+                self.advanced_panel_stack.isVisible()):
+                self.hide_advanced_panel()
             else:
-                self.scraping_dock.show()
-                # Ajustar el tamaño del dock widget
-                self.scraping_dock.setMinimumWidth(400)
-                self.scraping_dock.setMinimumHeight(500)
-                # Actualizar el contenido de la página actual en el scraping integration
+                # Actualizar el contenido antes de mostrar
                 self.update_scraping_content()
-                self.statusBar().showMessage("🔍 Panel de Scraping abierto - Analiza y extrae datos de la página", 5000)
+                self.show_advanced_panel(self.scraping_panel)
+                
+                # Activar automáticamente la selección interactiva si hay un navegador activo
+                current_browser = self.tab_manager.tabs.currentWidget()
+                if current_browser and hasattr(self.scraping_panel, 'browser_tab'):
+                    self.scraping_panel.browser_tab = current_browser
         else:
             QMessageBox.information(self, "🔍 Scraping", "Las herramientas de scraping no están disponibles. Verifica que scraping_integration.py esté presente.")
     
     def toggle_proxy_panel(self):
-        """Alterna la visibilidad del panel de gestión de proxies"""
-        if PROXY_AVAILABLE and self.proxy_dock:
-            if self.proxy_dock.isVisible():
-                self.proxy_dock.hide()
-                self.statusBar().showMessage("Panel de Proxies oculto", 3000)
+        """Alterna la visibilidad del panel de gestión de proxies USANDO EL STACK FIJO"""
+        if PROXY_AVAILABLE and hasattr(self, 'proxy_panel') and self.proxy_panel:
+            if (self.advanced_panel_stack.currentWidget() == self.proxy_panel and 
+                self.advanced_panel_stack.isVisible()):
+                self.hide_advanced_panel()
             else:
-                self.proxy_dock.show()
-                # Ajustar el tamaño del dock widget
-                self.proxy_dock.setMinimumWidth(400)
-                self.proxy_dock.setMinimumHeight(500)
                 # Actualizar la lista de proxies si es necesario
-                if hasattr(self, 'proxy_panel') and self.proxy_panel:
+                if hasattr(self.proxy_panel, 'refresh_proxy_list'):
                     self.proxy_panel.refresh_proxy_list()
-                self.statusBar().showMessage("🌐 Panel de Proxies abierto - Gestiona y configura proxies", 5000)
+                self.show_advanced_panel(self.proxy_panel)
         else:
             QMessageBox.information(self, "🌐 Proxies", "Las herramientas de gestión de proxies no están disponibles. Verifica que proxy_panel.py esté presente.")
     
     def toggle_chat_panel(self):
-        """Alterna la visibilidad del panel de chat con IA"""
-        if CHAT_AVAILABLE and self.chat_dock:
-            if self.chat_dock.isVisible():
-                self.chat_dock.hide()
-                self.statusBar().showMessage("Panel de Chat oculto", 3000)
+        """Alterna la visibilidad del panel de chat con IA USANDO EL STACK FIJO"""
+        if CHAT_AVAILABLE and hasattr(self, 'chat_panel') and self.chat_panel:
+            if (self.advanced_panel_stack.currentWidget() == self.chat_panel and 
+                self.advanced_panel_stack.isVisible()):
+                self.hide_advanced_panel()
             else:
-                self.chat_dock.show()
-                # Ajustar el tamaño del dock widget
-                self.chat_dock.setMinimumWidth(400)
-                self.chat_dock.setMinimumHeight(600)
-                self.statusBar().showMessage("🤖 Panel de Chat abierto - Conversa con IA usando LM Studio", 5000)
+                self.show_advanced_panel(self.chat_panel)
         else:
             QMessageBox.information(self, "🤖 Chat IA", "Las herramientas de chat con IA no están disponibles. Verifica que chat_panel.py esté presente.")
 
@@ -898,6 +1214,8 @@ class MainWindow(QMainWindow):
                 if hasattr(self.scraping_panel, 'handle_page_click'):
                     # Crear un bridge para comunicación
                     self.scraping_panel.browser_tab = browser_tab
+                    # Configurar selección interactiva
+                    self.setup_interactive_selection(browser_tab)
                     
         except Exception as e:
             print(f"Error configurando selección interactiva: {e}")
@@ -1015,6 +1333,8 @@ class MainWindow(QMainWindow):
             print(f"Error crítico al reaplicar configuración de privacidad: {e}")
             import traceback
             traceback.print_exc()
+
+
 
 
 class UrlBar(QLineEdit):

@@ -23,22 +23,7 @@ class DevToolsDock(QDockWidget):
         self.setMinimumWidth(400)
         self.setMinimumHeight(300)
 
-        # Aplicar tema oscuro
-        self.setStyleSheet("""
-            QDockWidget {
-                background-color: #2b2b2b;
-                color: #ffffff;
-            }
-            QDockWidget::title {
-                background-color: #1e1e1e;
-                color: #ffffff;
-                padding: 4px;
-            }
-            QWebEngineView {
-                background-color: #2b2b2b;
-                color: #ffffff;
-            }
-        """)
+        # Eliminar estilos hardcodeados para heredar tema global
         
         # Forzar tema oscuro en la vista web (con manejo de errores)
         try:
@@ -64,49 +49,6 @@ class DevToolsDock(QDockWidget):
         """Inicializa la interfaz de usuario"""
         layout = QVBoxLayout(self)
         
-        # Estilo oscuro
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #2b2b2b;
-                color: #ffffff;
-            }
-            QToolBar {
-                background-color: #1e1e1e;
-                border: none;
-                spacing: 3px;
-            }
-            QPushButton {
-                background-color: #0d47a1;
-                color: white;
-                border: none;
-                padding: 5px 15px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #1565c0;
-            }
-            QPushButton:pressed {
-                background-color: #0a3d91;
-            }
-            QTabWidget::pane {
-                border: 1px solid #555555;
-                background-color: #2b2b2b;
-            }
-            QTabBar::tab {
-                background-color: #1e1e1e;
-                color: #ffffff;
-                padding: 8px 12px;
-                border: 1px solid #555555;
-                border-bottom: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            QTabBar::tab:selected {
-                background-color: #0d47a1;
-            }
-            QTabBar::tab:hover {
-                background-color: #1565c0;
-            }
-        """)
+        # Eliminar estilos hardcodeados para heredar tema global
         
         # Crear la barra de herramientas

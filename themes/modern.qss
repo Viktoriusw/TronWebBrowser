@@ -1,74 +1,114 @@
-/* Estilos modernos compatibles con temas claro y oscuro */
-
-/* Toolbar compacta */     
+/* Toolbar compacta y moderna */
 QToolBar { 
     padding: 4px; 
     spacing: 6px; 
+    background: #f5f6f7; 
     border: none; 
 }
 
-/* URL bar y campos de entrada estilo pill */
+QToolButton { 
+    min-width: 32px; 
+    min-height: 32px;
+    max-width: 32px;
+    max-height: 32px;
+    border: 1px solid rgba(128,128,128,0.3);
+    border-radius: 4px;
+    padding: 2px;
+}
+
+QToolButton:hover {
+    background: rgba(0,120,215,0.1);
+    border: 1px solid rgba(0,120,215,0.5);
+}
+
+QToolButton:pressed {
+    background: rgba(0,120,215,0.2);
+}
+
+/* URL Bar estilo pill */
 QLineEdit { 
-    border: 1px solid rgba(128,128,128,0.5); 
+    border: 1px solid rgba(128,128,128,0.4); 
     border-radius: 14px; 
-    padding: 6px 10px; 
-    min-height: 16px;
+    padding: 6px 12px; 
+    background: #ffffff; 
+    font-size: 13px;
 }
 
 QLineEdit:focus {
-    border: 2px solid #007acc;
-    background: rgba(0,120,215,0.05);
+    border: 2px solid #0078d4;
+    background: #ffffff;
 }
 
-/* Tabs estilo "2016" - adaptativo a temas */
+/* Estrella de favoritos en URL bar */
+QLineEdit QToolButton {
+    border: none;
+    background: transparent;
+    margin: 0px;
+    padding: 2px;
+    min-width: 16px;
+    max-width: 16px;
+    min-height: 16px;
+    max-height: 16px;
+}
+
+QLineEdit QToolButton:hover {
+    background: rgba(0,120,215,0.1);
+    border-radius: 8px;
+}
+
+/* Pestañas estilo 2016 */
 QTabWidget::pane { 
-    border: 1px solid rgba(128,128,128,0.4); 
+    border: 1px solid #d6d6d6; 
     top: -1px; 
+    background: #f8f8f8; 
 }
 
 QTabBar::tab { 
-    border: 1px solid rgba(128,128,128,0.4); 
-    border-bottom-color: rgba(128,128,128,0.3);
+    background: #ececec; 
+    border: 1px solid #d6d6d6; 
+    border-bottom-color: #bbb;
     padding: 6px 12px; 
     margin-right: 2px; 
     border-top-left-radius: 6px; 
-    border-top-right-radius: 6px; 
+    border-top-right-radius: 6px;
     min-width: 80px;
 }
 
 QTabBar::tab:selected { 
-    border-bottom-color: transparent; 
-    font-weight: 500;
-    background: rgba(0,120,215,0.08);
+    background: #ffffff; 
+    border-bottom-color: #ffffff;
+    color: #111111;
+    font-weight: bold;
 }
 
-QTabBar::tab:hover { 
-    background: rgba(0,120,215,0.05);
+QTabBar::tab:!selected { 
+    color: #444444; 
 }
 
-QTabBar::close-button {
-    border-radius: 8px;
-    padding: 2px;
+QTabBar::tab:hover {
+    background: #f0f0f0;
 }
 
-QTabBar::close-button:hover { 
-    background: rgba(255,0,0,0.1); 
-    border-radius: 8px; 
-}
+/* Delegamos al override runtime; mantener vacío o coherente */
+QTabBar::close-button { /* definido en runtime */ }
 
 /* Dock headers discretos */
 QDockWidget::title { 
+    background: #f0f0f0; 
     padding: 4px 8px; 
     border: 1px solid rgba(128,128,128,0.3); 
-    font-weight: 500;
 }
 
-/* Botones con estilo moderno */
+/* Chat styles removed - handled dynamically by ui.py per theme */
+/* This prevents conflicts between light and dark themes */
+
+/* Botones generales */
 QPushButton {
     border: 1px solid rgba(128,128,128,0.4);
-    border-radius: 4px;
-    padding: 4px 8px;
-    min-height: 20px;
+    border-radius: 6px;
+    padding: 6px 12px;
+    background: #ffffff;
+    min-height: 24px;
 }
 
 QPushButton:hover {
@@ -78,20 +118,19 @@ QPushButton:hover {
 
 QPushButton:pressed {
     background: rgba(0,120,215,0.2);
-    border: 1px solid rgba(0,120,215,0.7);
 }
 
-/* ComboBox estilo moderno */
+/* ComboBox */
 QComboBox {
     border: 1px solid rgba(128,128,128,0.4);
     border-radius: 4px;
     padding: 4px 8px;
-    min-height: 20px;
+    background: #ffffff;
+    min-height: 24px;
 }
 
 QComboBox:hover {
-    border: 1px solid rgba(0,120,215,0.6);
-    background: rgba(0,120,215,0.05);
+    border: 1px solid rgba(0,120,215,0.5);
 }
 
 QComboBox::drop-down {
@@ -104,39 +143,83 @@ QComboBox::down-arrow {
     height: 12px;
 }
 
-/* Scrollbars modernas */
+/* ScrollBar */
 QScrollBar:vertical {
-    background: transparent;
+    background: #f0f0f0;
     width: 12px;
     border-radius: 6px;
 }
 
 QScrollBar::handle:vertical {
-    background: rgba(0,0,0,0.3);
+    background: #c0c0c0;
     border-radius: 6px;
     min-height: 20px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: rgba(0,0,0,0.5);
+    background: #a0a0a0;
 }
 
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    border: none;
-    background: none;
-}
-
-/* Group boxes modernos */
+/* GroupBox */
 QGroupBox {
-    font-weight: 500;
-    border: 1px solid rgba(0,0,0,0.2);
-    border-radius: 4px;
-    margin-top: 8px;
+    border: 1px solid rgba(128,128,128,0.4);
+    border-radius: 6px;
+    margin-top: 1ex;
     padding-top: 8px;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
-    subcontrol-position: top left;
-    padding: 0 8px;
+    left: 10px;
+    padding: 0 5px 0 5px;
 }
+
+/* Estilos específicos para paneles - Herencia de colores */
+QListWidget::item {
+    padding: 8px;
+    border-bottom: 1px solid rgba(128,128,128,0.2);
+}
+
+QListWidget::item:selected {
+    background: rgba(0,120,215,0.3);
+}
+
+QListWidget::item:hover {
+    background: rgba(128,128,128,0.1);
+}
+
+/* Estilos para tags y elementos pequeños */
+QLabel[objectName="tag"] {
+    background: rgba(128,128,128,0.2);
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+}
+
+/* Estilos para notas y texto secundario */
+QLabel[objectName="notes"] {
+    font-size: 10px;
+    opacity: 0.7;
+}
+
+QLabel[objectName="url"] {
+    font-size: 10px;
+    opacity: 0.8;
+}
+
+/* DevTools específicos */
+QDockWidget::title {
+    padding: 6px 12px;
+    border: none;
+    background: rgba(128,128,128,0.1);
+}
+
+/* Diálogos */
+QDialog {
+    background: inherit;
+    color: inherit;
+}
+
+/* ESTILOS ESPECÍFICOS POR TEMA ELIMINADOS DE AQUÍ */
+/* Los estilos de botones y scrollbar se aplican dinámicamente desde ui.py según el tema activo */
+/* Esto evita conflictos entre tema claro y oscuro */

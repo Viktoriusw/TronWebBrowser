@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
                                QTextEdit, QPushButton, QLabel, QSpinBox, 
                                QLineEdit, QComboBox, QListWidget, QListWidgetItem,
                                QCheckBox, QGroupBox, QScrollArea, QFrame, QMessageBox,
-                               QSplitter, QProgressBar)
+                               QSplitter, QProgressBar, QSizePolicy)
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QColor, QTextCursor
 
@@ -25,6 +25,9 @@ class ChatPanelSafe(QWidget):
         
     def setup_ui(self):
         """Setup complete UI for AI chat functionality"""
+        # Configurar objectName para estilos CSS
+        self.setObjectName("chatPanel")
+        
         layout = QVBoxLayout()
         
         # Create tab widget for all features
@@ -43,81 +46,85 @@ class ChatPanelSafe(QWidget):
     def create_chat_tab(self):
         """Tab principal del chat"""
         widget = QWidget()
-        layout = QVBoxLayout()
-        
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
         # Connection status
         status_layout = QHBoxLayout()
         self.status_label = QLabel("Estado: Desconectado")
         self.status_label.setStyleSheet("color: red; font-weight: bold;")
         status_layout.addWidget(self.status_label)
-        
         self.test_connection_btn = QPushButton("🔗 Probar Conexión")
         self.test_connection_btn.clicked.connect(self.test_connection_safe)
         status_layout.addWidget(self.test_connection_btn)
-        
+        status_layout.addStretch(1)
         layout.addLayout(status_layout)
-        
+
         # Context information display
         context_group = QGroupBox("📄 Información de Contexto de Página")
         context_layout = QVBoxLayout()
-        
         self.context_info_label = QLabel("No hay información de contexto disponible")
-        self.context_info_label.setStyleSheet("color: gray; font-style: italic;")
+        self.context_info_label.setObjectName("contextInfo")
         self.context_info_label.setWordWrap(True)
         context_layout.addWidget(self.context_info_label)
-        
         self.refresh_context_btn = QPushButton("🔄 Actualizar Contexto")
         self.refresh_context_btn.clicked.connect(self.update_context_info)
         context_layout.addWidget(self.refresh_context_btn)
-        
         context_group.setLayout(context_layout)
         layout.addWidget(context_group)
-        
-        # Chat area
-        chat_splitter = QSplitter(Qt.Vertical)
-        
-        # Chat display
-        self.chat_display = QTextEdit()
-        self.chat_display.setReadOnly(True)
-        self.chat_display.setPlaceholderText("Inicia una conversación con la IA...")
-        self.chat_display.setMinimumHeight(300)
-        chat_splitter.addWidget(self.chat_display)
-        
-        # Input area
-        input_widget = QWidget()
-        input_layout = QVBoxLayout()
-        
-        # Message input
+
+        # --- Chat area ---
+        self.chat_scroll = QScrollArea()
+        self.chat_scroll.setWidgetResizable(True)
+        self.chat_scroll.setObjectName("chatScroll")
+        self.chat_scroll.setFrameShape(QFrame.NoFrame)
+        self.chat_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chat_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.chat_scroll.setStyleSheet("background: transparent;")
+
+        self.chat_messages_widget = QWidget()
+        self.chat_messages_layout = QVBoxLayout(self.chat_messages_widget)
+        self.chat_messages_layout.setAlignment(Qt.AlignTop)
+        self.chat_messages_layout.setSpacing(12)  # Espaciado entre burbujas
+        self.chat_messages_layout.setContentsMargins(8, 8, 8, 8)  # Margen externo
+        # Permitir que el widget se expanda según el contenido
+        self.chat_messages_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        self.chat_scroll.setWidget(self.chat_messages_widget)
+        layout.addWidget(self.chat_scroll, 1)
+
+        # --- Input area: QTextEdit grande encima, botones debajo ---
         self.message_input = QTextEdit()
-        self.message_input.setMaximumHeight(100)
+        self.message_input.setObjectName("chatInput")
         self.message_input.setPlaceholderText("Escribe tu mensaje aquí...")
+        self.message_input.setMinimumHeight(60)
+        self.message_input.setMaximumHeight(120)
         self.message_input.setAcceptRichText(False)
-        input_layout.addWidget(self.message_input)
-        
-        # Send controls
-        send_layout = QHBoxLayout()
-        
+        layout.addWidget(self.message_input, 0)
+
+        # Botones debajo del input
+        buttons_layout = QHBoxLayout()
         self.send_btn = QPushButton("📤 Enviar")
+        self.send_btn.setObjectName("chatSend")
         self.send_btn.clicked.connect(self.send_message_safe)
         self.send_btn.setEnabled(False)
-        send_layout.addWidget(self.send_btn)
-        
+        buttons_layout.addWidget(self.send_btn)
+
         self.clear_btn = QPushButton("🗑️ Limpiar Chat")
         self.clear_btn.clicked.connect(self.clear_chat)
-        send_layout.addWidget(self.clear_btn)
-        
+        buttons_layout.addWidget(self.clear_btn)
+
         self.context_checkbox = QCheckBox("Incluir contexto de página actual")
         self.context_checkbox.setChecked(True)
         self.context_checkbox.toggled.connect(self.on_context_toggled)
-        send_layout.addWidget(self.context_checkbox)
-        
-        input_layout.addLayout(send_layout)
-        input_widget.setLayout(input_layout)
-        chat_splitter.addWidget(input_widget)
-        
-        layout.addWidget(chat_splitter)
-        
+        buttons_layout.addWidget(self.context_checkbox)
+
+        buttons_layout.addStretch(1)
+        layout.addLayout(buttons_layout)
+
         widget.setLayout(layout)
+        # Habilitar/deshabilitar botón de enviar según input
+        self.message_input.textChanged.connect(lambda: self.send_btn.setEnabled(bool(self.message_input.toPlainText().strip())))
         return widget
         
     def create_settings_tab(self):
@@ -456,7 +463,10 @@ Una vez cargado el modelo, el chat funcionará correctamente."""
             self.send_btn.setText("📤 Enviar")
         
     def format_ai_response(self, text):
-        """Formatea la respuesta de la IA con estructura HTML adecuada"""
+        """
+        Formatea texto con listas/encabezados simples a HTML legible.
+        Ajustado para dark mode: fondos y bordes discretos.
+        """
         if not text:
             return text
             
@@ -526,76 +536,73 @@ Una vez cargado el modelo, el chat funcionará correctamente."""
         # Unir todas las líneas formateadas
         formatted_text = '\n'.join(formatted_lines)
         
-        # Agregar estilos CSS para mejorar la presentación
-        formatted_text = f'''
+        # Sin estilos inline hardcodeados - usar el QSS del tema actual
+        formatted_text = f"""
         <div style="
             font-family: 'Segoe UI', Arial, sans-serif;
-            line-height: 1.5;
-            color: #333;
-            background-color: #f9f9f9;
-            padding: 15px;
-            border-radius: 8px;
-            border-left: 4px solid #4CAF50;
+            line-height: 1.55;
+            padding: 12px 14px;
+            border-radius: 10px;
             margin: 10px 0;
         ">
             {formatted_text}
         </div>
-        '''
+        """
         
         return formatted_text
 
     def add_message_to_chat(self, sender, message, message_type):
-        """Agregar mensaje al área de chat"""
+        """Agregar mensaje al área de chat (como burbuja)"""
+        from PySide6.QtWidgets import QLabel, QHBoxLayout, QWidget
+        import html
         timestamp = datetime.now().strftime("%H:%M:%S")
-        
-        # Formatear según el tipo de mensaje
+        # Widget de burbuja
+        bubble = QWidget()
+        bubble_layout = QVBoxLayout(bubble)
+        bubble_layout.setContentsMargins(12, 8, 12, 8)  # Padding interno más generoso
+        bubble_layout.setSpacing(4)
+        # Asegurar que la burbuja se expanda para mostrar todo el contenido
+        bubble.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        # Título
         if message_type == "user":
-            formatted_message = f'''
-            <div style="
-                margin: 10px 0;
-                padding: 10px;
-                background-color: #E3F2FD;
-                border-radius: 8px;
-                border-left: 4px solid #2196F3;
-            ">
-                <strong style="color: #1976D2; font-size: 14px;">{sender} ({timestamp}):</strong><br>
-                <div style="margin-top: 5px; line-height: 1.4;">{message}</div>
-            </div>
-            '''
+            bubble.setObjectName("userBubble")
+            title = f'<span style="font-weight:bold;opacity:.8;">{html.escape(sender)} <span style=\"font-size:11px;opacity:.6;\">({timestamp})</span></span>'
         elif message_type == "assistant":
-            # Formatear la respuesta de la IA con estructura HTML
-            formatted_content = self.format_ai_response(message)
-            formatted_message = f'''
-            <div style="margin: 10px 0;">
-                <strong style="color: #2E7D32; font-size: 14px;">{sender} ({timestamp}):</strong><br>
-                {formatted_content}
-            </div>
-            '''
-        else:  # error
-            formatted_message = f'''
-            <div style="
-                margin: 10px 0;
-                padding: 10px;
-                background-color: #FFEBEE;
-                border-radius: 8px;
-                border-left: 4px solid #F44336;
-            ">
-                <strong style="color: #D32F2F; font-size: 14px;">{sender} ({timestamp}):</strong><br>
-                <div style="margin-top: 5px; line-height: 1.4;">{message}</div>
-            </div>
-            '''
-            
-        # Agregar al chat
-        self.chat_display.append(formatted_message)
+            bubble.setObjectName("assistantBubble")
+            title = f'<span style="font-weight:bold;opacity:.8;">{html.escape(sender)} <span style=\"font-size:11px;opacity:.6;\">({timestamp})</span></span>'
+        else:
+            bubble.setObjectName("errorBubble")
+            title = f'<span style="font-weight:bold;opacity:.8;">{html.escape(sender)} <span style=\"font-size:11px;opacity:.6;\">({timestamp})</span></span>'
+        title_label = QLabel(title)
+        title_label.setTextFormat(Qt.RichText)
+        title_label.setObjectName("bubbleTitle")
+        bubble_layout.addWidget(title_label)
+        # Mensaje
+        msg_label = QLabel(self.format_ai_response(message) if message_type=="assistant" else html.escape(message))
+        msg_label.setTextFormat(Qt.RichText if message_type=="assistant" else Qt.PlainText)
+        msg_label.setWordWrap(True)
+        msg_label.setObjectName("bubbleMsg")
+        # Asegurar que el mensaje se expanda completamente
+        msg_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.MinimumExpanding)
+        msg_label.setMinimumHeight(20)  # Altura mínima razonable
+        msg_label.adjustSize()  # Ajustar al contenido
+        bubble_layout.addWidget(msg_label)
+        self.chat_messages_layout.addWidget(bubble)
         
-        # Auto-scroll al final
-        cursor = self.chat_display.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        self.chat_display.setTextCursor(cursor)
+        # Forzar actualización del layout y scroll
+        self.chat_messages_widget.updateGeometry()
+        self.chat_scroll.updateGeometry()
         
+        # Auto-scroll al final con un pequeño delay para permitir que el layout se actualice
+        QTimer.singleShot(10, lambda: self.chat_scroll.verticalScrollBar().setValue(
+            self.chat_scroll.verticalScrollBar().maximum()))
+
     def clear_chat(self):
         """Limpiar el área de chat"""
-        self.chat_display.clear()
+        for i in reversed(range(self.chat_messages_layout.count())):
+            widget = self.chat_messages_layout.itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
         self.chat_history = []
         
     def save_to_history(self, user_message, ai_response):
@@ -682,28 +689,28 @@ Una vez cargado el modelo, el chat funcionará correctamente."""
                     """
                     
                     self.context_info_label.setText(context_text)
-                    self.context_info_label.setStyleSheet("color: black; font-weight: normal;")
+                    # No aplicar estilos inline - usar objectName para QSS
                 else:
                     self.context_info_label.setText("No hay pestaña activa")
-                    self.context_info_label.setStyleSheet("color: orange; font-weight: bold;")
+                    # No aplicar estilos inline - usar objectName para QSS
             else:
                 self.context_info_label.setText("No se puede acceder al gestor de pestañas")
-                self.context_info_label.setStyleSheet("color: red; font-weight: bold;")
+                # No aplicar estilos inline - usar objectName para QSS
         except Exception as e:
             self.context_info_label.setText(f"Error obteniendo contexto: {str(e)}")
-            self.context_info_label.setStyleSheet("color: red; font-weight: bold;")
+            # No aplicar estilos inline - usar objectName para QSS
     
     def on_context_toggled(self, checked):
         """Callback cuando se activa/desactiva el contexto"""
         if checked:
-            self.context_info_label.setStyleSheet("color: green; font-weight: bold;")
+            # No aplicar estilos inline - usar objectName para QSS
             # Actualizar el texto para mostrar que está activo
             current_text = self.context_info_label.text()
             if "Estado:" in current_text:
                 current_text = current_text.replace("❌ Contexto desactivado", "✅ Contexto activo")
                 self.context_info_label.setText(current_text)
         else:
-            self.context_info_label.setStyleSheet("color: orange; font-weight: bold;")
+            # No aplicar estilos inline - usar objectName para QSS
             # Actualizar el texto para mostrar que está desactivado
             current_text = self.context_info_label.text()
             if "Estado:" in current_text:

@@ -1,9 +1,9 @@
 import json
 import os
-from PySide6.QtWidgets import QTabWidget, QMenu, QInputDialog
+from PySide6.QtWidgets import QTabWidget, QMenu
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtCore import QUrl, Qt
-from PySide6.QtGui import QIcon, QAction
+from PySide6.QtCore import QUrl, Qt, QSettings
+from PySide6.QtGui import QIcon
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
 
 class TabManager:
@@ -17,7 +17,39 @@ class TabManager:
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self.on_tab_changed)
+        
+        # Configurar menú contextual de pestañas
+        self.tabs.tabBar().setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tabs.tabBar().customContextMenuRequested.connect(self._tab_context_menu)
+        
         self.add_new_tab()
+
+    def _inject_dark_scrollbar_css(self, browser):
+        """Inyecta CSS de scrollbar oscuro si el tema es dark"""
+        try:
+            theme = "light"
+            if hasattr(self.parent, 'settings'):
+                theme = self.parent.settings.value("theme", "light")
+            if theme == "dark":
+                css = """
+                ::-webkit-scrollbar { width: 12px; background: #23272f; }
+                ::-webkit-scrollbar-thumb { background: #5a5f6a; border-radius: 6px; }
+                ::-webkit-scrollbar-thumb:hover { background: #6c7a89; }
+                """
+                js = f"""
+                (function() {{
+                    var style = document.getElementById('tron-scrollbar-style');
+                    if (!style) {{
+                        style = document.createElement('style');
+                        style.id = 'tron-scrollbar-style';
+                        style.innerHTML = `{css}`;
+                        document.head.appendChild(style);
+                    }}
+                }})();
+                """
+                browser.page().runJavaScript(js)
+        except Exception as e:
+            print(f"Error inyectando CSS de scrollbar oscuro: {e}")
 
     def add_new_tab(self, url="https://duckduckgo.com"):
         """Crea una nueva pestaña y la devuelve"""
@@ -59,8 +91,12 @@ class TabManager:
             # Actualizar la barra de URL si está disponible
             if hasattr(self.parent, 'url_bar'):
                 self.parent.url_bar.setText(url)
+            
+            # TODO V2: Aplicar profile del grupo aquí si la pestaña va a un grupo específico
                 
             print(f"Pestaña creada exitosamente con URL: {url}")
+            # Inyectar CSS de scrollbar oscuro si aplica
+            self._inject_dark_scrollbar_css(browser)
             return browser
         except Exception as e:
             print(f"Error al crear una nueva pestaña: {str(e)}")
@@ -85,9 +121,11 @@ class TabManager:
                     title = url.split('/')[-1] if url else "New Tab"
                 if len(title) > 30:
                     title = title[:27] + "..."
+                
                 self.tabs.setTabText(index, title)
                 if self.tabs.currentWidget() == browser:
                     self.parent.setWindowTitle(f"{title} - Tron Browser")
+                    
         except Exception as e:
             print(f"Error al actualizar el título de la pestaña: {str(e)}")
 
@@ -143,6 +181,10 @@ class TabManager:
             # Actualizar la barra de URL si está disponible
             if hasattr(self.parent, 'url_bar'):
                 self.parent.url_bar.setText(url.toString())
+            if hasattr(self.parent, 'tabs'):
+                browser = self.tabs.currentWidget()
+                if browser:
+                    self._inject_dark_scrollbar_css(browser)
         except Exception as e:
             print(f"Error al actualizar la URL: {str(e)}")
 
@@ -161,6 +203,11 @@ class TabManager:
                     current_url = current_browser.url().toString()
                     # Actualizar el widget del navegador en el scraping integration
                     self.parent.scraping_integration.browser_widget = current_browser
+                    
+                    # Actualizar browser_tab en el panel de scraping
+                    if hasattr(self.parent, 'scraping_panel') and self.parent.scraping_panel:
+                        self.parent.scraping_panel.browser_tab = current_browser
+                    
                     # Obtener el HTML de la página actual
                     current_browser.page().toHtml(
                         lambda html_content: self.parent.scraping_integration.update_content(html_content, current_url)
@@ -207,3 +254,34 @@ class TabManager:
             url = browser.url().toString().lower()
             visible = query in title or query in url or not query
             self.tabs.setTabVisible(i, visible)
+
+
+
+    def close_other_tabs(self, keep_index):
+        """Cerrar todas las pestañas excepto la especificada"""
+        try:
+            # Cerrar desde el final para mantener índices válidos
+            for i in range(self.tabs.count() - 1, -1, -1):
+                if i != keep_index:
+                    self.close_tab(i)
+        except Exception as e:
+            print(f"Error closing other tabs: {e}")
+
+    def _tab_context_menu(self, pos):
+        """Menú contextual por pestaña"""
+        index = self.tabs.tabBar().tabAt(pos)
+        if index < 0: 
+            return
+        menu = QMenu(self.tabs)
+        
+        # Acciones básicas
+        close_action = menu.addAction("Cerrar pestaña")
+        close_others_action = menu.addAction("Cerrar otras pestañas")
+
+        # Ejecutar menú
+        action = menu.exec(self.tabs.tabBar().mapToGlobal(pos))
+        
+        if action == close_action:
+            self.close_tab(index)
+        elif action == close_others_action:
+            self.close_other_tabs(index)

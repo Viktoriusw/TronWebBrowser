@@ -81,23 +81,7 @@ class PasswordManager(QWidget):
         
         # Lista de contraseñas
         self.passwords_list = QListWidget()
-        self.passwords_list.setStyleSheet("""
-            QListWidget {
-                background-color: #232323;
-                color: #ffffff;
-                border: 1px solid #555555;
-                border-radius: 4px;
-            }
-            QListWidget::item {
-                background-color: #232323;
-                color: #ffffff;
-                padding: 8px;
-            }
-            QListWidget::item:selected {
-                background-color: #0d47a1;
-                color: #ffffff;
-            }
-        """)
+        # Eliminar estilos hardcodeados para heredar tema global
         layout.addWidget(self.passwords_list)
         
         # Botones de acción
@@ -309,54 +293,7 @@ class PasswordManager(QWidget):
         try:
             dialog = QDialog(self)
             dialog.setWindowTitle("Generador de Contraseñas")
-            dialog.setStyleSheet("""
-                QDialog {
-                    background-color: #232323;
-                    color: #ffffff;
-                }
-                QLabel {
-                    color: #ffffff;
-                    background-color: #232323;
-                }
-                QLineEdit {
-                    background-color: #232323;
-                    color: #ffffff;
-                    border: 1px solid #555555;
-                    border-radius: 4px;
-                    padding: 4px;
-                }
-                QPushButton {
-                    background-color: #0d47a1;
-                    color: #ffffff;
-                    border: none;
-                    padding: 5px 15px;
-                    border-radius: 4px;
-                }
-                QPushButton:hover {
-                    background-color: #1565c0;
-                    color: #ffffff;
-                }
-                QPushButton:pressed {
-                    background-color: #0a3d91;
-                    color: #ffffff;
-                }
-                QGroupBox {
-                    background-color: #232323;
-                    border: 1px solid #555555;
-                    border-radius: 4px;
-                    margin-top: 10px;
-                    padding-top: 10px;
-                    color: #ffffff;
-                }
-                QGroupBox::title {
-                    color: #ffffff;
-                    background-color: #232323;
-                }
-                QCheckBox {
-                    color: #ffffff;
-                    background-color: #232323;
-                }
-            """)
+            # Eliminar estilos hardcodeados para heredar tema global
             layout = QVBoxLayout(dialog)
             
             # Opciones de generación

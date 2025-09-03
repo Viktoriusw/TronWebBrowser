@@ -45,20 +45,7 @@ class BookmarkManager(QObject):
         
         # Lista de marcadores
         self.bookmarks_list = QListWidget()
-        self.bookmarks_list.setStyleSheet("""
-            QListWidget {
-                background-color: #f5f5f5;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #eee;
-            }
-            QListWidget::item:selected {
-                background-color: #e0e0e0;
-            }
-        """)
+        # Eliminar estilos hardcodeados para heredar tema global
         layout.addWidget(self.bookmarks_list)
         
         # Botones de acción
@@ -172,14 +159,14 @@ class BookmarkManager(QObject):
         
         # Título
         title_label = QLabel(data.get('title', url))
-        title_label.setStyleSheet("font-weight: bold;")
+        # Eliminar estilos inline para heredar tema global
         title_layout.addWidget(title_label)
         
         layout.addLayout(title_layout)
         
         # Segunda fila: URL
         url_label = QLabel(url)
-        url_label.setStyleSheet("color: gray; font-size: 10px;")
+        # Eliminar estilos inline para heredar tema global
         layout.addWidget(url_label)
         
         # Tercera fila: tags
@@ -187,19 +174,14 @@ class BookmarkManager(QObject):
             tags_layout = QHBoxLayout()
             for tag in data['tags']:
                 tag_label = QLabel(tag)
-                tag_label.setStyleSheet("""
-                    background-color: #e0e0e0;
-                    padding: 2px 6px;
-                    border-radius: 10px;
-                    font-size: 10px;
-                """)
+                # Eliminar estilos inline para heredar tema global
                 tags_layout.addWidget(tag_label)
             layout.addLayout(tags_layout)
         
         # Cuarta fila: notas
         if 'notes' in data and data['notes']:
             notes_label = QLabel(data['notes'])
-            notes_label.setStyleSheet("font-size: 10px; opacity: 0.7;")
+            # Eliminar estilos inline para heredar tema global
             notes_label.setWordWrap(True)
             layout.addWidget(notes_label)
         
@@ -233,12 +215,12 @@ class BookmarkManager(QObject):
         """Filtra los marcadores según el texto de búsqueda y tags"""
         self.update_bookmarks_list()
 
-    def add_bookmark(self):
-        """Añade un nuevo marcador"""
+    def add_bookmark_dialog(self):
+        """Añade un nuevo marcador mediante diálogo"""
         try:
             # Obtener URL y título del navegador actual
-            current_url = self.parent.current_url()
-            current_title = self.parent.current_title()
+            current_url = self.parent.current_url() if hasattr(self.parent, 'current_url') else ""
+            current_title = self.parent.current_title() if hasattr(self.parent, 'current_title') else ""
             
             if not current_url:
                 QMessageBox.warning(self.parent, "Error", "No hay una página activa para marcar")
@@ -281,27 +263,15 @@ class BookmarkManager(QObject):
             layout.addLayout(buttons_layout)
             
             if dialog.exec():
-                # Procesar tags
-                tags = [tag.strip() for tag in tags_input.text().split(',') if tag.strip()]
-                self.tags.update(tags)
+                # Usar el método add_bookmark optimizado
+                url = url_input.text().strip()
+                title = title_input.text().strip() or url
+                notes = notes_input.toPlainText().strip()
+                tags = tags_input.text().strip()
+                show_in_bar = show_in_bar_checkbox.isChecked()
                 
-                # Guardar marcador
-                self.bookmarks[current_url] = {
-                    'title': title_input.text(),
-                    'tags': tags,
-                    'notes': notes_input.toPlainText(),
-                    'show_in_bar': show_in_bar_checkbox.isChecked(),
-                    'favicon': self.get_favicon(current_url)
-                }
-                
-                self.save_bookmarks()
-                self.update_tag_filter()
-                self.update_bookmarks_list()
-                self.bookmark_added.emit(current_url, title_input.text())
-                
-                # Actualizar barra de favoritos si existe
-                if hasattr(self.parent, 'update_favorites_bar'):
-                    self.parent.update_favorites_bar()
+                if self.add_bookmark(url, title, notes, tags, show_in_bar):
+                    QMessageBox.information(self.parent, "Éxito", "Marcador añadido correctamente")
                 
         except Exception as e:
             print(f"Error al añadir marcador: {str(e)}")
@@ -394,41 +364,91 @@ class BookmarkManager(QObject):
         except Exception as e:
             print(f"Error al editar marcador: {str(e)}")
 
-    def remove_bookmark(self):
-        """Elimina un marcador"""
+    def remove_bookmark(self, url=None):
+        """Elimina un marcador - por URL o el seleccionado actualmente"""
         try:
-            current_item = self.bookmarks_list.currentItem()
-            if not current_item:
-                return
-            
-            # Obtener URL del marcador
-            url = None
-            for bookmark_url, data in self.bookmarks.items():
-                if data.get('title') == current_item.text():
-                    url = bookmark_url
-                    break
-            
-            if not url:
-                return
-            
-            # Confirmar eliminación
-            reply = QMessageBox.question(
-                self.parent,
-                "Confirmar eliminación",
-                f"¿Estás seguro de que quieres eliminar el marcador '{self.bookmarks[url].get('title')}'?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            
-            if reply == QMessageBox.Yes:
-                del self.bookmarks[url]
-                self.save_bookmarks()
-                self.update_tag_filter()
-                self.update_bookmarks_list()
-                self.bookmark_removed.emit(url)
+            if url:
+                # Eliminar por URL específica (llamado desde UI)
+                if url in self.bookmarks:
+                    del self.bookmarks[url]
+                    self.save_bookmarks()
+                    self.update_tag_filter()
+                    self.update_bookmarks_list()
+                    self.bookmark_removed.emit(url)
+                    return True
+                return False
+            else:
+                # Eliminar el marcador seleccionado en la lista
+                current_item = self.bookmarks_list.currentItem()
+                if not current_item:
+                    return
+                
+                # Obtener URL del marcador
+                url = None
+                for bookmark_url, data in self.bookmarks.items():
+                    if data.get('title') == current_item.text():
+                        url = bookmark_url
+                        break
+                
+                if not url:
+                    return
+                
+                # Confirmar eliminación
+                reply = QMessageBox.question(
+                    self.parent,
+                    "Confirmar eliminación",
+                    f"¿Estás seguro de que quieres eliminar el marcador '{self.bookmarks[url].get('title')}'?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                
+                if reply == QMessageBox.Yes:
+                    del self.bookmarks[url]
+                    self.save_bookmarks()
+                    self.update_tag_filter()
+                    self.update_bookmarks_list()
+                    self.bookmark_removed.emit(url)
                 
         except Exception as e:
             print(f"Error al eliminar marcador: {str(e)}")
+
+    def is_bookmarked(self, url):
+        """Verifica si una URL está marcada como favorito"""
+        return url in self.bookmarks
+
+    def add_bookmark(self, url, title, notes="", tags="", show_in_bar=False):
+        """Añade un marcador desde código (para el botón de estrella)"""
+        try:
+            if url in self.bookmarks:
+                return False  # Ya existe
+            
+            self.bookmarks[url] = {
+                'title': title or url,
+                'notes': notes,
+                'tags': tags,
+                'show_in_bar': show_in_bar,
+                'favicon': self.get_favicon(url)
+            }
+            
+            # Actualizar tags
+            if tags:
+                tag_list = [tag.strip() for tag in tags.split(',') if tag.strip()]
+                self.tags.update(tag_list)
+            
+            self.save_bookmarks()
+            self.update_tag_filter()
+            self.update_bookmarks_list()
+            self.bookmark_added.emit(url, title or url)
+            
+            # Actualizar barra de favoritos si existe
+            if hasattr(self.parent, 'update_favorites_bar'):
+                self.parent.update_favorites_bar()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error al añadir marcador: {str(e)}")
+            return False
 
     def get_widget(self):
         """Retorna el widget principal del gestor de marcadores"""
