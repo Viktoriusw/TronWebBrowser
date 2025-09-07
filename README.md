@@ -164,31 +164,6 @@ python main.py
 - Configuración personalizable
 ```
 
-## 📁 Estructura del Proyecto
-
-```
-Tron-Browser/
-├── main.py                 # Punto de entrada principal
-├── ui.py                   # Interfaz principal
-├── chat_panel.py          # Panel de chat con IA (NUEVO)
-├── scraping_panel.py      # Herramientas de scraping
-├── proxy_panel.py         # Gestión de proxies
-├── tabs.py                # Gestión de pestañas
-├── navigation.py          # Navegación web
-├── history.py             # Historial de navegación
-├── privacy.py             # Configuración de privacidad
-├── password_manager.py    # Gestor de contraseñas
-├── bookmarks.py           # Sistema de marcadores
-├── maintag.py             # Gestor principal de marcadores
-├── downloads.py           # Gestión de descargas
-├── devtools.py            # Herramientas de desarrollador
-├── icons/                 # Iconos de la interfaz
-├── plugins/               # Plugins del navegador
-├── requirements.txt       # Dependencias del proyecto
-├── CHAT_PANEL_GUIDE.md   # Guía del panel de chat
-└── README.md             # Este archivo
-```
-
 ## 🔧 Configuración
 
 ### Temas
