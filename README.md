@@ -74,8 +74,7 @@ pip install -r requirements.txt
 4. **Configurar (opcional)**:
 ```bash
 # Copiar archivos de configuración de ejemplo
-cp scrapelillo/config/config.example.yaml scrapelillo/config/config.yaml
-cp scrapelillo/config/proxies.example.txt scrapelillo/config/proxies.txt
+
 ```
 
 5. **Ejecutar el navegador**:
